@@ -31,27 +31,34 @@ def extrair_itens_por_texto(soup):
     if not tabela:
         return pd.DataFrame()
 
-    texto_completo = tabela.get_text(" ", strip=True)
-
-    padrao = re.compile(r"(.+?)\(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)")
-
-    matches = padrao.findall(texto_completo)
+    linhas = tabela.find_all("tr")
     dados = []
-    for match in matches:
-        nome, codigo, qtd, un, unit, total = match
-        try:
-            dados.append({
-                "Descrição": nome.strip(),
-                "Código": codigo.strip(),
-                "Quantidade": float(qtd.replace(",", ".")),
-                "Unidade": un.strip(),
-                "Valor Unitário": float(unit.replace(",", ".")),
-                "Valor Total": float(total.replace(",", "."))
-            })
-        except:
-            continue
+
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception as e:
+                continue
 
     return pd.DataFrame(dados)
+
 
 # UI
 st.set_page_config(page_title="NFC-e Vulcano", layout="centered")
