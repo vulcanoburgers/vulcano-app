@@ -67,7 +67,7 @@ def extrair_itens_por_texto(soup):
 
 # Config página e menu lateral
 st.set_page_config(page_title="Vulcano App", layout="wide")
-menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa"])
+menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque"])
 
 # NFC-e
 if menu == "📥 Inserir NFC-e":
@@ -88,7 +88,7 @@ if menu == "📥 Inserir NFC-e":
                 if st.button("Enviar produtos para Google Sheets"):
                     hoje = datetime.date.today().strftime("%d/%m/%Y")
                     for _, row in df.iterrows():
-                        nova_linha = [hoje, row['Descrição'], "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+                        nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
                         sheet.append_row(nova_linha)
                     st.success("Produtos adicionados com sucesso!")
             else:
@@ -131,3 +131,27 @@ elif menu == "📈 Fluxo de Caixa":
         st.bar_chart(gastos_mes.set_index('Mês'))
     else:
         st.info("Nenhum dado registrado ainda.")
+
+# Aba Estoque
+elif menu == "📦 Estoque":
+    st.title("📦 Estoque Atual")
+
+    @st.cache_data(ttl=600)
+    def carregar_estoque():
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+        if "Descrição" not in df.columns or "Valor" not in df.columns:
+            return pd.DataFrame()
+
+        estoque = df.groupby("Descrição")["Valor"].agg(["count", "sum"]).reset_index()
+        estoque.columns = ["Produto", "Entradas", "Valor Total Estimado"]
+        return estoque.sort_values(by="Valor Total Estimado", ascending=False)
+
+    df_estoque = carregar_estoque()
+
+    if not df_estoque.empty:
+        st.dataframe(df_estoque, use_container_width=True)
+        total_estoque = df_estoque["Valor Total Estimado"].sum()
+        st.metric("Valor Total Estimado em Estoque", f"R$ {total_estoque:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    else:
+        st.info("Nenhum dado disponível para estoque.")
