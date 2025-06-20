@@ -13,7 +13,15 @@ from datetime import datetime
 
 # Autenticação Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = Credentials.from_service_account_file("vulcano-credentials.json", scopes=scope)
+import json
+# ...
+try:
+    # Tenta carregar as credenciais de `st.secrets`
+    credentials_info = st.secrets["google_credentials"]
+    credentials = Credentials.from_service_account_info(credentials_info, scopes=scope)
+except KeyError:
+    st.error("Credenciais do Google não encontradas nos segredos do Streamlit.")
+    st.stop() # Para o app se as credenciais não estiverem configuradas
 client = gspread.authorize(credentials)
 
 # Nome da planilha de despesas
