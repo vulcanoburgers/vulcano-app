@@ -108,7 +108,7 @@ elif menu == "📈 Fluxo de Caixa":
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
         if "Valor" in df.columns:
-            df["Valor"] = df["Valor"].astype(str).str.replace(',', '.').astype(float)
+            df["Valor"] = df["Valor"].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).astype(float)
         if "Data Compra" in df.columns:
             df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
         return df
