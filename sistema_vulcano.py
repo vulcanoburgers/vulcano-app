@@ -41,13 +41,16 @@ def extrair_itens_por_texto(soup):
             try:
                 nome = texto.split("(Código:")[0].strip()
                 codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
-                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
-                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d.,]+)", texto).group(1)
                 unitario = re.search(r"Vl\. Unit\.\:\s*([\d.,]+)", texto).group(1)
                 total = re.search(r"Vl\. Total\s*([\d.,]+)", texto).group(1)
+
+                qtd = qtd.replace('.', '').replace(',', '.')
                 unitario = unitario.replace('.', '').replace(',', '.')
                 total = total.replace('.', '').replace(',', '.')
 
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+            
                 dados.append({
                     "Descrição": nome,
                     "Código": codigo,
