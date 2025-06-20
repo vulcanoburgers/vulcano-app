@@ -18,34 +18,31 @@ except:
 
 # Google Sheets auth
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials_info = {key: st.secrets[key] for key in st.secrets}
+credentials_info = {key: st.secrets[key] for key in st.secrets]
 credentials = Credentials.from_service_account_info(credentials_info, scopes=scope)
 client = gspread.authorize(credentials)
 sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
 sheet = client.open_by_url(sheet_url).sheet1
 
-# Novo parser por texto
+# Novo parser mais flexível por texto com re.findall
 
 def extrair_itens_por_texto(soup):
     tabela = soup.find("table", {"id": "tabResult"})
-    linhas = tabela.find_all("tr") if tabela else []
+    texto_completo = tabela.get_text(" ", strip=True) if tabela else ""
+
+    padrao = r"(.+?) \(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)"
+    matches = re.findall(padrao, texto_completo)
+
     dados = []
-    for linha in linhas:
-        texto = linha.get_text(" ", strip=True)
-        match = re.search(
-            r"(.+?) \(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)",
-            texto
-        )
-        if match:
-            nome, codigo, qtd, un, unit, total = match.groups()
-            dados.append({
-                "Descrição": nome.strip(),
-                "Código": codigo.strip(),
-                "Quantidade": float(qtd.replace(",", ".")),
-                "Unidade": un.strip(),
-                "Valor Unitário": float(unit.replace(",", ".")),
-                "Valor Total": float(total.replace(",", "."))
-            })
+    for nome, codigo, qtd, un, unit, total in matches:
+        dados.append({
+            "Descrição": nome.strip(),
+            "Código": codigo.strip(),
+            "Quantidade": float(qtd.replace(",", ".")),
+            "Unidade": un.strip(),
+            "Valor Unitário": float(unit.replace(",", ".")),
+            "Valor Total": float(total.replace(",", "."))
+        })
     return pd.DataFrame(dados)
 
 # UI
