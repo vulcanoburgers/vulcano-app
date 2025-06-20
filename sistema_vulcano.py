@@ -122,24 +122,30 @@ elif menu == "📈 Fluxo de Caixa":
     df_planilha = carregar_dados()
 
     if not df_planilha.empty:
-        st.subheader("💸 Despesas")
-        despesas = df_planilha[df_planilha["Categoria"] != "Receita"]
-        st.dataframe(despesas, use_container_width=True)
+        df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
 
-        st.subheader("💰 Entradas")
-        entradas = df_planilha[df_planilha["Categoria"] == "Receita"]
-        st.dataframe(entradas, use_container_width=True)
+        # Classificação automática de tipo
+        df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
 
-        total_despesas = despesas['Valor'].sum()
-        total_entradas = entradas['Valor'].sum()
+        entradas = df_planilha[df_planilha["Tipo"] == "Entrada"]
+        despesas = df_planilha[df_planilha["Tipo"] == "Despesa"]
+
+        total_entradas = entradas["Valor"].sum()
+        total_despesas = despesas["Valor"].sum()
         saldo = total_entradas - total_despesas
+
         col1, col2, col3 = st.columns(3)
         col1.metric("Total de Entradas", f"R$ {total_entradas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
         col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
         col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
 
+        st.subheader("💸 Despesas")
+        st.dataframe(despesas, use_container_width=True)
 
-        df_planilha['Mês'] = df_planilha['Data Compra'].dt.to_period('M').astype(str)
+        st.subheader("💰 Entradas")
+        st.dataframe(entradas, use_container_width=True)
+
+        df_planilha['Mês'] = pd.to_datetime(df_planilha['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
         gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
         st.bar_chart(gastos_mes.set_index('Mês'))
     else:
