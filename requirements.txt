@@ -10,3 +10,4 @@ opencv-python
 Pillow
 beautifulsoup4
 requests
+pyzbar
