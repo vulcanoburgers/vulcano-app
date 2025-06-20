@@ -9,11 +9,10 @@ import gspread
 import datetime
 import re
 import locale
+import requests # Importar para fazer requisições HTTP (baixar imagem de URL)
+from io import BytesIO # Importar para lidar com bytes da imagem
 
 # --- Configuração de Localização para Formato de Moeda e Data ---
-# Tenta definir a localização para português do Brasil.
-# 'pt_BR.UTF-8' é comum em sistemas Linux.
-# 'Portuguese_Brazil' é comum em sistemas Windows.
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 except locale.Error:
@@ -26,12 +25,11 @@ except locale.Error:
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 try:
-    # Monta o dicionário de credenciais a partir dos segredos individuais do Streamlit Cloud
     credentials_info = {
         "type": st.secrets["type"],
         "project_id": st.secrets["project_id"],
         "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"], # A chave privada com \n
+        "private_key": st.secrets["private_key"],
         "client_email": st.secrets["client_email"],
         "client_id": st.secrets["client_id"],
         "auth_uri": st.secrets["auth_uri"],
@@ -46,12 +44,11 @@ try:
 except KeyError as e:
     st.error(f"Erro: O segredo '{e}' não foi encontrado nos segredos do Streamlit.")
     st.info("Por favor, verifique se todos os campos do JSON de credenciais estão configurados como segredos individuais no Streamlit Cloud.")
-    st.stop() # Interrompe a execução do aplicativo se as credenciais não estiverem lá
+    st.stop()
 except Exception as e:
     st.error(f"Ocorreu um erro inesperado ao autenticar com o Google Sheets: {e}")
     st.info("Verifique se as credenciais estão corretas e se a API do Google Sheets está ativada no Google Cloud Console.")
     st.stop()
-
 
 # Nome da planilha de despesas
 try:
@@ -66,36 +63,31 @@ except Exception as e:
     st.info("Verifique sua conexão com a internet e as permissões da conta de serviço.")
     st.stop()
 
-
 # --- Configuração da Página Streamlit ---
 st.set_page_config(page_title="Controle de Despesas - Vulcano", layout="centered")
 st.title("📸 Leitor de NFC-e (QR Code)")
 
-st.write("Envie uma imagem da NFC-e ou tire uma foto para extrair os dados da compra.")
+st.write("Envie uma imagem da NFC-e, tire uma foto ou cole a URL de um QR Code.")
 
 # --- Função para extrair dados do QR Code ---
 def extract_data_from_qr_code(qr_data):
     # Regex para encontrar o valor total (geralmente depois de "vICMS=XX.YY" ou "vLiq=XX.YY")
-    # Tenta capturar um valor numérico que pareça um total de despesa,
-    # geralmente precedido por 'vICMS=' ou 'vProd=' ou 'vLiq='
     match_valor = re.search(r'(vICMS|vProd|vLiq|vNF|vCFe)=([\d.]+)', qr_data)
     valor_total = "N/A"
     if match_valor:
-        valor_total = match_valor.group(2).replace('.', ',') # Substitui ponto por vírgula
+        valor_total = match_valor.group(2).replace('.', ',')
 
-    # Regex para encontrar a data (formato DD/MM/AAAA ou AAAA-MM-DD)
-    # Tenta encontrar padrões de data (NFe/CFe geralmente usam YYYYMMDD ou DDMMYYYY)
-    match_data = re.search(r'dhEmi=.*?(\d{4})(\d{2})(\d{2})', qr_data) # Para dhEmi=YYYYMMDD
+    # Regex para encontrar a data (formato YYYYMMDD ou DD/MM/YYYY)
+    match_data = re.search(r'dhEmi=.*?(\d{4})(\d{2})(\d{2})', qr_data)
     if match_data:
         ano = match_data.group(1)
-        mes = match_match_data.group(2)
-        dia = match_match_data.group(3)
+        mes = match_data.group(2)
+        dia = match_data.group(3)
         data_compra = f"{dia}/{mes}/{ano}"
     else:
-        # Tenta outro padrão de data se o dhEmi não for encontrado
         match_data = re.search(r'(\d{2})/(\d{2})/(\d{4})', qr_data)
         if match_data:
-            data_compra = match_data.group(0) # Retorna a data completa
+            data_compra = match_data.group(0)
         else:
             data_compra = "N/A"
 
@@ -109,23 +101,18 @@ def extract_data_from_qr_code(qr_data):
 
     return valor_total, data_compra, cnpj, chave_acesso
 
-# --- Upload de Imagem e Processamento ---
-uploaded_file = st.file_uploader("Escolha uma imagem de NFC-e...", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    # Exibir a imagem carregada
-    image = Image.open(uploaded_file)
-    st.image(image, caption='Imagem Carregada', use_column_width=True)
+# --- Processamento de Imagem ---
+def process_image(image_to_process):
+    if image_to_process is None:
+        return
 
     # Converter imagem para formato OpenCV (numpy array)
-    img_cv = np.array(image)
-    # Converta para escala de cinza se a imagem não for monocromática
+    img_cv = np.array(image_to_process)
     if len(img_cv.shape) == 3:
         img_gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
     else:
         img_gray = img_cv
 
-    # Decodificar QR codes
     decoded_objects = decode(img_gray)
 
     if decoded_objects:
@@ -158,14 +145,10 @@ if uploaded_file is not None:
             if st.button("Adicionar Dados à Planilha Google"):
                 try:
                     for index, row in df.iterrows():
-                        # Formata o valor para o padrão BR antes de enviar, se necessário
                         valor_para_sheet = row["Valor Total (R$)"]
                         if isinstance(valor_para_sheet, str):
-                            # Garante que 'R$' ou espaços não sejam enviados
                             valor_para_sheet = valor_para_sheet.replace('R$', '').strip()
 
-                        # Inserir linha na planilha
-                        # Ajuste conforme as colunas da sua planilha no Google Sheets
                         sheet.append_row([
                             row["Data da Compra"],
                             valor_para_sheet,
@@ -179,26 +162,58 @@ if uploaded_file is not None:
     else:
         st.warning("Nenhum QR Code detectado na imagem. Por favor, tente outra imagem.")
 
+# --- Seleção de Input ---
+input_option = st.radio(
+    "Como você gostaria de fornecer a imagem do QR Code?",
+    ("Upload de Arquivo", "Colar URL da Imagem"),
+    key="input_option_radio"
+)
+
+image_to_process = None
+
+if input_option == "Upload de Arquivo":
+    uploaded_file = st.file_uploader("Escolha uma imagem de NFC-e...", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        image_to_process = Image.open(uploaded_file)
+        st.image(image_to_process, caption='Imagem Carregada', use_column_width=True)
+elif input_option == "Colar URL da Imagem":
+    qr_code_url = st.text_input("Cole a URL da imagem do QR Code aqui:")
+    if qr_code_url:
+        st.info("Tentando carregar imagem da URL...")
+        try:
+            response = requests.get(qr_code_url)
+            response.raise_for_status() # Levanta um erro para códigos de status HTTP ruins (4xx ou 5xx)
+            image_to_process = Image.open(BytesIO(response.content))
+            st.image(image_to_process, caption='Imagem da URL', use_column_width=True)
+        except requests.exceptions.MissingSchema:
+            st.error("URL inválida. Certifique-se de incluir 'http://' ou 'https://'.")
+        except requests.exceptions.RequestException as e:
+            st.error(f"Erro ao carregar a imagem da URL: {e}. Verifique se a URL está correta e é acessível.")
+        except Exception as e:
+            st.error(f"Erro inesperado ao processar a URL da imagem: {e}")
+
+# Processa a imagem se uma foi fornecida (ou por upload ou por URL)
+if image_to_process is not None:
+    process_image(image_to_process)
+
+
 # --- Seção de Visualização de Dados Existentes ---
 st.markdown("---")
 st.header("Dados Atuais da Planilha")
 
 @st.cache_data(ttl=600) # Cache os dados por 10 minutos
 def load_data_from_sheets():
-    # Obtém todos os registros da planilha
     data = sheet.get_all_records()
     df = pd.DataFrame(data)
-    # Converte colunas de data e valor para tipos apropriados para análise
     if "Data da Compra" in df.columns:
         df["Data da Compra"] = pd.to_datetime(df["Data da Compra"], format="%d/%m/%Y", errors='coerce')
     if "Valor Total (R$)" in df.columns:
-        # Tenta converter para numérico, substituindo vírgula por ponto
         df["Valor Total (R$)"] = df["Valor Total (R$)"].astype(str).str.replace(',', '.', regex=False)
         df["Valor Total (R$)"] = pd.to_numeric(df["Valor Total (R$)"], errors='coerce')
     return df
 
 if st.button("Recarregar Dados da Planilha"):
-    st.cache_data.clear() # Limpa o cache para forçar nova leitura
+    st.cache_data.clear()
     df_existing = load_data_from_sheets()
     st.success("Dados recarregados!")
 else:
@@ -214,7 +229,7 @@ if not df_existing.empty:
     st.subheader("Despesas por Mês")
     df_existing['Mês'] = df_existing['Data da Compra'].dt.to_period('M')
     despesas_por_mes = df_existing.groupby('Mês')['Valor Total (R$)'].sum().reset_index()
-    despesas_por_mes['Mês'] = despesas_por_mes['Mês'].astype(str) # Para exibir corretamente no Streamlit
+    despesas_por_mes['Mês'] = despesas_por_mes['Mês'].astype(str)
 
     st.bar_chart(despesas_por_mes.set_index('Mês'))
 
