@@ -1,4 +1,4 @@
-# NOVO CÓDIGO COM FUNCIONALIDADE DE EXTRAÇÃO VIA HTML (REQUESTS + BeautifulSoup)
+# NOVO CÓDIGO CORRIGIDO PARA HTML REAL DA NFC-E
 
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 import gspread
 
-# Locale para pt-BR
+# Locale pt-BR
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
 except:
@@ -24,7 +24,33 @@ client = gspread.authorize(credentials)
 sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
 sheet = client.open_by_url(sheet_url).sheet1
 
-# Streamlit UI
+# Função de parser adaptada para o HTML real
+
+def extrair_itens_nfe(soup):
+    tabela = soup.find("table", {"id": "tabResult"})
+    linhas = tabela.find_all("tr")
+    dados = []
+    for linha in linhas:
+        try:
+            nome = linha.find("span", class_="txtTit").get_text(strip=True)
+            codigo = linha.find("span", class_="RCod").get_text(strip=True).replace("Código:", "").strip()
+            qtd = linha.find("span", class_="Rqtd").get_text(strip=True).replace("Qtde.:", "").strip().replace(",", ".")
+            unidade = linha.find("span", class_="RUN").get_text(strip=True).replace("UN:", "").strip()
+            unit = linha.find("span", class_="RvlUnit").get_text(strip=True).replace("Vl. Unit.:", "").strip().replace(",", ".")
+            total = linha.find("span", class_="valor").get_text(strip=True).replace(",", ".")
+            dados.append({
+                "Descrição": nome,
+                "Código": codigo,
+                "Quantidade": float(qtd),
+                "Unidade": unidade,
+                "Valor Unitário": float(unit),
+                "Valor Total": float(total)
+            })
+        except:
+            continue
+    return pd.DataFrame(dados)
+
+# UI
 st.set_page_config(page_title="NFC-e Vulcano", layout="centered")
 st.title("📥 Leitor de NFC-e por Link")
 
@@ -36,33 +62,25 @@ if url:
         res.raise_for_status()
         soup = BeautifulSoup(res.content, 'html.parser')
 
-        full_text = soup.get_text(" ", strip=True)
+        df = extrair_itens_nfe(soup)
 
-        produtos = re.findall(r"(.+?)\(Código: (\d+)\)Qtde.:(\d+[\.,]?\d*)UN:(\w+)Vl. Unit.:(\d+[\.,]?\d*)Vl. Total(\d+[\.,]?\d*)", full_text)
-
-        if produtos:
+        if not df.empty:
             st.subheader("Produtos na nota")
-            df = pd.DataFrame(produtos, columns=["Produto", "Código", "Quantidade", "Unidade", "Valor Unitário", "Valor Total"])
-
-            for col in ["Quantidade", "Valor Unitário", "Valor Total"]:
-                df[col] = df[col].str.replace(",", ".").astype(float)
-
             st.dataframe(df)
-
             if st.button("Enviar produtos para Google Sheets"):
                 hoje = datetime.date.today().strftime("%d/%m/%Y")
-                for i, row in df.iterrows():
-                    nova_linha = [hoje, row['Produto'], "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+                for _, row in df.iterrows():
+                    nova_linha = [hoje, row['Descrição'], "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
                     sheet.append_row(nova_linha)
                 st.success("Produtos adicionados com sucesso!")
         else:
-            st.warning("Nenhum produto encontrado. Verifique se a URL é de uma nota válida da SEFAZ RS.")
+            st.warning("Nenhum produto encontrado.")
 
     except Exception as e:
         st.error(f"Erro ao acessar a nota: {e}")
 
+# Histórico
 st.markdown("---")
-
 st.header("📊 Histórico de Despesas")
 
 @st.cache_data(ttl=600)
@@ -84,7 +102,6 @@ if not df_planilha.empty:
     st.dataframe(df_planilha)
     total = df_planilha['Valor'].sum()
     st.metric("Total de Despesas", locale.currency(total, grouping=True))
-
     df_planilha['Mês'] = df_planilha['Data Compra'].dt.to_period('M').astype(str)
     gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
     st.bar_chart(gastos_mes.set_index('Mês'))
