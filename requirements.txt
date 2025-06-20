@@ -1,8 +1,12 @@
-
 streamlit
-pandas
 gspread
 oauth2client
+pandas
 google-auth
-requests
+google-auth-oauthlib
+google-auth-httplib2
+pyzbar
+opencv-python
+Pillow
 beautifulsoup4
+requests

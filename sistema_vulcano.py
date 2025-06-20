@@ -1,113 +1,83 @@
 import streamlit as st
-import pandas as pd
+from google.oauth2.service_account import Credentials
 import gspread
+import pandas as pd
+from PIL import Image
+from pyzbar.pyzbar import decode
+import cv2
+import tempfile
 import requests
 from bs4 import BeautifulSoup
-from google.oauth2.service_account import Credentials
 import re
+from datetime import datetime
 
-st.title("Controle de Despesas - Vulcano Burgers (Cloud 🌩️)")
+# Autenticação Google Sheets
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+credentials = Credentials.from_service_account_file("vulcano-credentials.json", scopes=scope)
+client = gspread.authorize(credentials)
 
-# Autenticação com Google Sheets
-scope = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/drive"
-]
+# Nome da planilha de despesas
+sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0").sheet1
 
-credentials = Credentials.from_service_account_info(
-    st.secrets["GOOGLE_CREDENTIALS"], scopes=scope
-)
-gc = gspread.authorize(credentials)
-sheet = gc.open_by_url("https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit?usp=sharing")
-ws = sheet.sheet1
+st.set_page_config(page_title="Controle de Despesas - Vulcano", layout="centered")
+st.title("📸 Leitor de NFC-e (QR Code)")
 
-# Função para puxar HTML da NFC-e
-def get_nfe_html(url_qr):
-    try:
-        resp = requests.get(url_qr, timeout=10)
-        resp.raise_for_status()
-        return resp.text
-    except Exception as e:
-        st.error(f"Erro ao acessar a URL da NFC-e: {e}")
-        return None
+# Função para extrair link do QR Code
+def extract_qr_code(image_path):
+    img = cv2.imread(image_path)
+    barcodes = decode(img)
+    for barcode in barcodes:
+        data = barcode.data.decode("utf-8")
+        if "sefaz" in data:
+            return data
+    return None
 
-# Função para extrair itens do HTML da nota
-def parse_nfe_html(html):
-    soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text(separator="\n")
-    pattern = re.compile(
-        r'(.+?) \(Código: (\d+)\)\s*Qtde\.:([\d\.,]+)(UN|KG):.*?Unit\.: *([\d\.,]+).*?Total *([\d\.,]+)',
-        re.MULTILINE
-    )
-    produtos = []
-    for m in pattern.finditer(text):
-        nome, cod, qtd, un, unit, tot = m.groups()
-        produtos.append({
-            "Produto": nome.strip(),
-            "Código": cod,
-            "Quantidade": float(qtd.replace(",", ".")),
-            "Unidade": un,
-            "Preço Unit.": float(unit.replace(",", ".")),
-            "Preço Total": float(tot.replace(",", "."))
+# Função para raspar dados da NFC-e
+def extract_nfe_data_from_url(url):
+    response = requests.get(url)
+    if response.status_code != 200:
+        return None, "Erro ao acessar a página da SEFAZ."
+
+    soup = BeautifulSoup(response.content, "html.parser")
+    texto = soup.get_text(separator=" ").replace("\n", " ")
+    padrao = r"(.+?)\(Código:\s+(\d+)\)\s+Qtde\.:([\d,]+)\s+UN:([A-Z]+)\s+Vl\. Unit\.:([\d,]+)\s+Vl\. Total([\d,]+)"
+    matches = re.findall(padrao, texto)
+    
+    items = []
+    for match in matches:
+        nome, cod, qtde, un, unit, total = match
+        items.append({
+            "Data Compra": datetime.now().strftime("%d/%m/%Y"),
+            "Descrição": nome.strip(),
+            "Categoria": "Mercado",
+            "Sub-Categoria": "Não definido",
+            "Forma de Pagamento": "Desconhecido",
+            "Valor": float(total.replace(",", ".")),
+            "Data Pagamento": datetime.now().strftime("%d/%m/%Y")
         })
-    return pd.DataFrame(produtos)
+    return items, None
 
-# Interface com abas
-tabs = st.tabs(["Despesas Manuais", "Importar NFC-e (via URL QR)"])
+# Upload de imagem do QR Code
+uploaded_file = st.file_uploader("Envie uma imagem com o QR Code da nota", type=["png", "jpg", "jpeg"])
+if uploaded_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
+        temp_file.write(uploaded_file.read())
+        qr_link = extract_qr_code(temp_file.name)
 
-# Aba 1 - Despesas Manuais
-with tabs[0]:
-    st.header("Despesas registradas")
-    df = pd.DataFrame(ws.get_all_records())
-    st.dataframe(df)
-
-    st.subheader("Registrar manualmente")
-    with st.form("form_despesa"):
-        d_compra = st.date_input("Data Compra")
-        desc = st.text_input("Descrição")
-        cat = st.text_input("Categoria")
-        subcat = st.text_input("Sub-Categoria")
-        forma = st.text_input("Forma de Pagamento")
-        val = st.number_input("Valor", min_value=0.0, format="%.2f")
-        d_pag = st.date_input("Data Pagamento")
-        if st.form_submit_button("Registrar"):
-            ws.append_row([
-                d_compra.strftime("%Y-%m-%d"),
-                desc,
-                cat,
-                subcat,
-                forma,
-                val,
-                d_pag.strftime("%Y-%m-%d")
-            ])
-            st.success("Despesa registrada!")
-            st.experimental_rerun()
-
-# Aba 2 - Importar NFC-e
-with tabs[1]:
-    st.header("Importar dados da NFC-e")
-    url_qr = st.text_input("Cole aqui a URL completa do QR Code")
-    if st.button("Buscar e importar"):
-        if url_qr:
-            html = get_nfe_html(url_qr)
-            if html:
-                df_nfe = parse_nfe_html(html)
-                if not df_nfe.empty:
-                    st.dataframe(df_nfe)
-                    for _, r in df_nfe.iterrows():
-                        ws.append_row([
-                            pd.Timestamp.now().strftime("%Y-%m-%d"),
-                            r["Produto"],
-                            "Insumos",
-                            "",
-                            "NFC-e Importada",
-                            r["Preço Total"],
-                            pd.Timestamp.now().strftime("%Y-%m-%d")
-                        ])
-                    st.success(f"{len(df_nfe)} produtos importados com sucesso!")
-                else:
-                    st.warning("Não encontrei produtos na nota. Pode ser que o layout tenha mudado.")
-        else:
-            st.warning("Insira a URL do QR Code da NFC-e.")
+    if qr_link:
+        st.success(f"Link encontrado: {qr_link}")
+        with st.spinner("Consultando nota..."):
+            itens, erro = extract_nfe_data_from_url(qr_link)
+            if erro:
+                st.error(erro)
+            elif itens:
+                df = pd.DataFrame(itens)
+                st.dataframe(df)
+                if st.button("✅ Enviar itens para planilha"):
+                    for row in df.itertuples(index=False):
+                        sheet.append_row(list(row))
+                    st.success("Itens enviados com sucesso!")
+            else:
+                st.warning("Nenhum item encontrado na nota.")
+    else:
+        st.error("Não foi possível identificar um QR Code válido na imagem.")
