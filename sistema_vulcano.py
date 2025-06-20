@@ -18,7 +18,7 @@ except:
 
 # Google Sheets auth
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials_info = {key: st.secrets[key] for key in st.secrets]
+credentials_info = {key: st.secrets[key] for key in st.secrets}
 credentials = Credentials.from_service_account_info(credentials_info, scopes=scope)
 client = gspread.authorize(credentials)
 sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
