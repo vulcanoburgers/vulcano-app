@@ -89,7 +89,7 @@ def extract_data_from_nfce_url(nfce_url):
     if match_valor:
         valor_total = match_valor.group(2).replace('.', ',') # Converte para padrão BR
 
-    # Regex para a data (formato YYYYMMDD ou DD/MM/YYYY)
+    # Regex para a data (formato ASDFDDMMYYYY ou DD/MM/YYYY)
     match_data = re.search(r'data=(\d{8})', nfce_url) # Para data=YYYYMMDD
     if match_data:
         data_str = match_data.group(1)
@@ -197,7 +197,8 @@ def load_data_from_sheets():
         df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
     if "Valor" in df.columns: # Agora a coluna é "Valor"
         df["Valor"] = df["Valor"].astype(str).str.replace(',', '.', regex=False)
-        df["Valor"] = pd.to_numeric(df["Valor"], errors='coerce")
+        # CORREÇÃO AQUI: aspas simples para 'coerce'
+        df["Valor"] = pd.to_numeric(df["Valor"], errors='coerce')
     if "Data Pagamento" in df.columns:
         df["Data Pagamento"] = pd.to_datetime(df["Data Pagamento"], format="%d/%m/%Y", errors='coerce')
 
