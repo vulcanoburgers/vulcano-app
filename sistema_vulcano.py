@@ -53,7 +53,6 @@ def extrair_itens_por_texto(soup):
                     "Unidade": unidade,
                     "Valor Unitário": round(float(unitario.replace('.', '').replace(',', '.')), 2),
                     "Valor Total": round(float(total.replace('.', '').replace(',', '.')), 2)
-
                 })
             except:
                 continue
