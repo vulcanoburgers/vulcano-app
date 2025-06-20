@@ -1,4 +1,4 @@
-# NOVO CÓDIGO CORRIGIDO PARA HTML REAL DA NFC-E
+# NOVO CÓDIGO COM PARSER FUNCIONAL BASEADO NO TEXTO DAS LINHAS
 
 import streamlit as st
 import pandas as pd
@@ -24,30 +24,28 @@ client = gspread.authorize(credentials)
 sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
 sheet = client.open_by_url(sheet_url).sheet1
 
-# Função de parser adaptada para o HTML real
+# Novo parser por texto
 
-def extrair_itens_nfe(soup):
+def extrair_itens_por_texto(soup):
     tabela = soup.find("table", {"id": "tabResult"})
-    linhas = tabela.find_all("tr")
+    linhas = tabela.find_all("tr") if tabela else []
     dados = []
     for linha in linhas:
-        try:
-            nome = linha.find("span", class_="txtTit").get_text(strip=True)
-            codigo = linha.find("span", class_="RCod").get_text(strip=True).replace("Código:", "").strip()
-            qtd = linha.find("span", class_="Rqtd").get_text(strip=True).replace("Qtde.:", "").strip().replace(",", ".")
-            unidade = linha.find("span", class_="RUN").get_text(strip=True).replace("UN:", "").strip()
-            unit = linha.find("span", class_="RvlUnit").get_text(strip=True).replace("Vl. Unit.:", "").strip().replace(",", ".")
-            total = linha.find("span", class_="valor").get_text(strip=True).replace(",", ".")
+        texto = linha.get_text(" ", strip=True)
+        match = re.search(
+            r"(.+?) \(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)",
+            texto
+        )
+        if match:
+            nome, codigo, qtd, un, unit, total = match.groups()
             dados.append({
-                "Descrição": nome,
-                "Código": codigo,
-                "Quantidade": float(qtd),
-                "Unidade": unidade,
-                "Valor Unitário": float(unit),
-                "Valor Total": float(total)
+                "Descrição": nome.strip(),
+                "Código": codigo.strip(),
+                "Quantidade": float(qtd.replace(",", ".")),
+                "Unidade": un.strip(),
+                "Valor Unitário": float(unit.replace(",", ".")),
+                "Valor Total": float(total.replace(",", "."))
             })
-        except:
-            continue
     return pd.DataFrame(dados)
 
 # UI
@@ -62,7 +60,7 @@ if url:
         res.raise_for_status()
         soup = BeautifulSoup(res.content, 'html.parser')
 
-        df = extrair_itens_nfe(soup)
+        df = extrair_itens_por_texto(soup)
 
         if not df.empty:
             st.subheader("Produtos na nota")
