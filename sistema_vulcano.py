@@ -4,40 +4,43 @@ import gspread
 import requests
 from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
-import json
 import re
 
 st.title("Controle de Despesas - Vulcano Burgers (Cloud 🌩️)")
 
-# Google Sheets setup
+# Autenticação com Google Sheets
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
     "https://www.googleapis.com/auth/drive"
 ]
+
 credentials = Credentials.from_service_account_info(
-    json.loads(st.secrets["GOOGLE_CREDENTIALS"]), scopes=scope
+    st.secrets["GOOGLE_CREDENTIALS"], scopes=scope
 )
 gc = gspread.authorize(credentials)
 sheet = gc.open_by_url("https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit?usp=sharing")
 ws = sheet.sheet1
 
-# Função pra buscar HTML da NFC-e
+# Função para puxar HTML da NFC-e
 def get_nfe_html(url_qr):
     try:
         resp = requests.get(url_qr, timeout=10)
         resp.raise_for_status()
         return resp.text
     except Exception as e:
-        st.error(f"Erro ao acessar URL: {e}")
+        st.error(f"Erro ao acessar a URL da NFC-e: {e}")
         return None
 
-# Função que extrai produtos da NFC-e
+# Função para extrair itens do HTML da nota
 def parse_nfe_html(html):
     soup = BeautifulSoup(html, "html.parser")
     text = soup.get_text(separator="\n")
-    pattern = re.compile(r'(.+?) \(Código: (\d+)\)\s*Qtde\.:([\d\.,]+)(UN|KG):.*?Unit\.: *([\d\.,]+).*?Total *([\d\.,]+)', re.MULTILINE)
+    pattern = re.compile(
+        r'(.+?) \(Código: (\d+)\)\s*Qtde\.:([\d\.,]+)(UN|KG):.*?Unit\.: *([\d\.,]+).*?Total *([\d\.,]+)',
+        re.MULTILINE
+    )
     produtos = []
     for m in pattern.finditer(text):
         nome, cod, qtd, un, unit, tot = m.groups()
@@ -51,8 +54,10 @@ def parse_nfe_html(html):
         })
     return pd.DataFrame(produtos)
 
-# UI
+# Interface com abas
 tabs = st.tabs(["Despesas Manuais", "Importar NFC-e (via URL QR)"])
+
+# Aba 1 - Despesas Manuais
 with tabs[0]:
     st.header("Despesas registradas")
     df = pd.DataFrame(ws.get_all_records())
@@ -68,10 +73,19 @@ with tabs[0]:
         val = st.number_input("Valor", min_value=0.0, format="%.2f")
         d_pag = st.date_input("Data Pagamento")
         if st.form_submit_button("Registrar"):
-            ws.append_row([d_compra.strftime("%Y-%m-%d"), desc, cat, subcat, forma, val, d_pag.strftime("%Y-%m-%d")])
+            ws.append_row([
+                d_compra.strftime("%Y-%m-%d"),
+                desc,
+                cat,
+                subcat,
+                forma,
+                val,
+                d_pag.strftime("%Y-%m-%d")
+            ])
             st.success("Despesa registrada!")
             st.experimental_rerun()
 
+# Aba 2 - Importar NFC-e
 with tabs[1]:
     st.header("Importar dados da NFC-e")
     url_qr = st.text_input("Cole aqui a URL completa do QR Code")
@@ -83,7 +97,7 @@ with tabs[1]:
                 if not df_nfe.empty:
                     st.dataframe(df_nfe)
                     for _, r in df_nfe.iterrows():
-                        line = [
+                        ws.append_row([
                             pd.Timestamp.now().strftime("%Y-%m-%d"),
                             r["Produto"],
                             "Insumos",
@@ -91,11 +105,9 @@ with tabs[1]:
                             "NFC-e Importada",
                             r["Preço Total"],
                             pd.Timestamp.now().strftime("%Y-%m-%d")
-                        ]
-                        ws.append_row(line)
-                    st.success(f"{len(df_nfe)} produtos importados!")
+                        ])
+                    st.success(f"{len(df_nfe)} produtos importados com sucesso!")
                 else:
-                    st.warning("Não encontrei itens na nota. O layout da SEFAZ pode ter mudado.")
+                    st.warning("Não encontrei produtos na nota. Pode ser que o layout tenha mudado.")
         else:
             st.warning("Insira a URL do QR Code da NFC-e.")
-
