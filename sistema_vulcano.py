@@ -118,7 +118,7 @@ elif menu == "📈 Fluxo de Caixa":
     if not df_planilha.empty:
         st.dataframe(df_planilha, use_container_width=True)
         total = df_planilha['Valor'].sum()
-        st.metric("Total de Despesas", locale.currency(total, grouping=True))
+        st.metric("Total de Despesas", f"R$ {total:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
 
         df_planilha['Mês'] = df_planilha['Data Compra'].dt.to_period('M').astype(str)
         gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
