@@ -1,4 +1,4 @@
-# NOVO CÓDIGO COM PARSER FUNCIONAL BASEADO NO TEXTO DAS LINHAS
+# NOVO CÓDIGO COM PARSER MAIS TOLERANTE QUE FUNCIONA COM HTML REAL
 
 import streamlit as st
 import pandas as pd
@@ -24,25 +24,33 @@ client = gspread.authorize(credentials)
 sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
 sheet = client.open_by_url(sheet_url).sheet1
 
-# Novo parser mais flexível por texto com re.findall
+# Parser mais tolerante baseado no HTML real
 
 def extrair_itens_por_texto(soup):
     tabela = soup.find("table", {"id": "tabResult"})
-    texto_completo = tabela.get_text(" ", strip=True) if tabela else ""
+    if not tabela:
+        return pd.DataFrame()
 
-    padrao = r"(.+?) \(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)"
-    matches = re.findall(padrao, texto_completo)
+    texto_completo = tabela.get_text(" ", strip=True)
 
+    padrao = re.compile(r"(.+?)\(Código:\s*(\d+)\)\s*Qtde\.:\s*([\d,]+)\s*UN:\s*(\w+)\s*Vl\. Unit\.:\s*([\d,]+)\s*Vl\. Total\s*([\d,]+)")
+
+    matches = padrao.findall(texto_completo)
     dados = []
-    for nome, codigo, qtd, un, unit, total in matches:
-        dados.append({
-            "Descrição": nome.strip(),
-            "Código": codigo.strip(),
-            "Quantidade": float(qtd.replace(",", ".")),
-            "Unidade": un.strip(),
-            "Valor Unitário": float(unit.replace(",", ".")),
-            "Valor Total": float(total.replace(",", "."))
-        })
+    for match in matches:
+        nome, codigo, qtd, un, unit, total = match
+        try:
+            dados.append({
+                "Descrição": nome.strip(),
+                "Código": codigo.strip(),
+                "Quantidade": float(qtd.replace(",", ".")),
+                "Unidade": un.strip(),
+                "Valor Unitário": float(unit.replace(",", ".")),
+                "Valor Total": float(total.replace(",", "."))
+            })
+        except:
+            continue
+
     return pd.DataFrame(dados)
 
 # UI
