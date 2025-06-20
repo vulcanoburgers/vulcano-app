@@ -121,42 +121,49 @@ elif menu == "📈 Fluxo de Caixa":
 
     df_planilha = carregar_dados()
 
-if not df_planilha.empty:
-    df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
-    df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
+    if not df_planilha.empty:
+        df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
+        df_planilha["Tipo"] = df_planilha["Categoria"].apply(
+            lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa"
+        )
 
-    # Filtros
-    st.subheader("📅 Filtros")
-    with st.expander("Filtrar por período ou categoria"):
-        data_inicio = st.date_input("Data inicial", value=min(df_planilha["Data Compra"]))
-        data_fim = st.date_input("Data final", value=max(df_planilha["Data Compra"]))
-        categoria_filtro = st.multiselect("Filtrar por categoria", options=df_planilha["Categoria"].unique())
+        st.subheader("📅 Filtros")
+        with st.expander("Filtrar período e categoria"):
+            data_inicio = st.date_input("Data Inicial", value=min(df_planilha["Data Compra"]))
+            data_fim = st.date_input("Data Final", value=max(df_planilha["Data Compra"]))
+            categorias = df_planilha["Categoria"].unique()
+            categoria_filtro = st.multiselect("Filtrar por Categoria", options=categorias)
 
-    df_filtrado = df_planilha[(df_planilha["Data Compra"] >= data_inicio) & (df_planilha["Data Compra"] <= data_fim)]
-    if categoria_filtro:
-        df_filtrado = df_filtrado[df_filtrado["Categoria"].isin(categoria_filtro)]
+        # Aplicar filtros
+        df_filtrado = df_planilha[(df_planilha["Data Compra"] >= data_inicio) & (df_planilha["Data Compra"] <= data_fim)]
+        if categoria_filtro:
+            df_filtrado = df_filtrado[df_filtrado["Categoria"].isin(categoria_filtro)]
 
-    entradas = df_filtrado[df_filtrado["Tipo"] == "Entrada"]
-    despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]
+        entradas = df_filtrado[df_filtrado["Tipo"] == "Entrada"]
+        despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]
 
-    total_entradas = entradas["Valor"].sum()
-    total_despesas = despesas["Valor"].sum()
-    saldo = total_entradas - total_despesas
+        total_entradas = entradas["Valor"].sum()
+        total_despesas = despesas["Valor"].sum()
+        saldo = total_entradas - total_despesas
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Entradas", f"R$ {total_entradas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-    col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total de Entradas", f"R$ {total_entradas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+        col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
 
-    st.subheader("💸 Despesas")
-    st.dataframe(despesas, use_container_width=True)
+        st.subheader("💸 Despesas")
+        st.dataframe(despesas, use_container_width=True)
 
-    st.subheader("💰 Entradas")
-    st.dataframe(entradas, use_container_width=True)
+        st.subheader("💰 Entradas")
+        st.dataframe(entradas, use_container_width=True)
 
-    df_filtrado['Mês'] = pd.to_datetime(df_filtrado['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
-    gastos_mes = df_filtrado.groupby('Mês')['Valor'].sum().reset_index()
-    st.bar_chart(gastos_mes.set_index('Mês'))
+        df_filtrado['Mês'] = pd.to_datetime(df_filtrado['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
+        gastos_mes = df_filtrado.groupby('Mês')['Valor'].sum().reset_index()
+        st.subheader("📊 Gráfico de movimentação mensal")
+        st.bar_chart(gastos_mes.set_index('Mês'))
+
+    else:
+        st.info("Nenhum dado registrado ainda.")
 
 
 # Aba Estoque
