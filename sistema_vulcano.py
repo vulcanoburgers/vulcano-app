@@ -1,242 +1,92 @@
+# NOVO CÓDIGO COM FUNCIONALIDADE DE EXTRAÇÃO VIA HTML (REQUESTS + BeautifulSoup)
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-# Removidas as imports de imagem e QR code de imagem, pois o foco é a URL do site
-# from PIL import Image
-# import cv2
-# from pyzbar.pyzbar import decode
+import datetime
+import locale
+import re
+import requests
+from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 import gspread
-import datetime
-import re
-import locale
-import requests # Ainda útil para verificar acessibilidade da URL, mas o Browse fará o scrape
-# from io import BytesIO # Não é mais necessário para lidar com imagens de URL
 
-# --- Configuração de Localização para Formato de Moeda e Data ---
+# Locale para pt-BR
 try:
     locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except locale.Error:
-    try:
-        locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil')
-    except locale.Error:
-        st.warning("Não foi possível definir a localização para pt_BR. O formato de moeda e data pode não estar correto.")
+except:
+    locale.setlocale(locale.LC_ALL, '')
 
-# --- Autenticação Google Sheets ---
+# Google Sheets auth
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+credentials_info = {key: st.secrets[key] for key in st.secrets}
+credentials = Credentials.from_service_account_info(credentials_info, scopes=scope)
+client = gspread.authorize(credentials)
+sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
+sheet = client.open_by_url(sheet_url).sheet1
 
-try:
-    credentials_info = {
-        "type": st.secrets["type"],
-        "project_id": st.secrets["project_id"],
-        "private_key_id": st.secrets["private_key_id"],
-        "private_key": st.secrets["private_key"],
-        "client_email": st.secrets["client_email"],
-        "client_id": st.secrets["client_id"],
-        "auth_uri": st.secrets["auth_uri"],
-        "token_uri": st.secrets["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
-        "universe_domain": st.secrets["universe_domain"]
-    }
+# Streamlit UI
+st.set_page_config(page_title="NFC-e Vulcano", layout="centered")
+st.title("📥 Leitor de NFC-e por Link")
 
-    credentials = Credentials.from_service_account_info(credentials_info, scopes=scope)
-    client = gspread.authorize(credentials)
-except KeyError as e:
-    st.error(f"Erro: O segredo '{e}' não foi encontrado nos segredos do Streamlit.")
-    st.info("Por favor, verifique se todos os campos do JSON de credenciais estão configurados como segredos individuais no Streamlit Cloud.")
-    st.stop()
-except Exception as e:
-    st.error(f"Ocorreu um erro inesperado ao autenticar com o Google Sheets: {e}")
-    st.info("Verifique se as credenciais estão corretas e se a API do Google Sheets está ativada no Google Cloud Console.")
-    st.stop()
+url = st.text_input("Cole o link completo da NFC-e")
 
-# Nome da planilha de despesas
-try:
-    sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit#gid=0"
-    sheet = client.open_by_url(sheet_url).sheet1
-except gspread.exceptions.SpreadsheetNotFound:
-    st.error(f"Erro: Planilha não encontrada no URL: {sheet_url}")
-    st.info("Verifique se o URL da planilha está correto e se a conta de serviço tem acesso de 'Editor'.")
-    st.stop()
-except Exception as e:
-    st.error(f"Ocorreu um erro ao tentar abrir a planilha: {e}")
-    st.info("Verifique sua conexão com a internet e as permissões da conta de serviço.")
-    st.stop()
-
-
-# --- Configuração da Página Streamlit ---
-st.set_page_config(page_title="Controle de Despesas - Vulcano", layout="centered")
-st.title("🔗 Leitor de NFC-e (URL)")
-
-st.write("Cole a URL completa da NFC-e (link do QR Code) para que o sistema tente extrair os dados da compra diretamente do site.")
-
-# --- Função para extrair dados da URL do QR Code (link da NFC-e) ---
-# Esta função será usada para uma extração inicial da URL, mas o scraping da página será mais completo
-def extract_data_from_nfce_url_string(nfce_url_string):
-    match_chave = re.search(r'chave=(\d{44})', nfce_url_string)
-    chave_acesso = match_chave.group(1) if match_chave else "N/A"
-
-    match_cnpj = re.search(r'cnpj=(\d{14})', nfce_url_string)
-    cnpj = match_cnpj.group(1) if match_cnpj else "N/A"
-
-    match_valor = re.search(r'(valor|vICMS|vProd|vLiq|vNF|vCFe)=([\d.]+)', nfce_url_string, re.IGNORECASE)
-    valor_total = "N/A"
-    if match_valor:
-        valor_total = match_valor.group(2).replace('.', ',')
-
-    match_data = re.search(r'data=(\d{8})', nfce_url_string)
-    if match_data:
-        data_str = match_data.group(1)
-        data_compra = f"{data_str[6:8]}/{data_str[4:6]}/{data_str[0:4]}"
-    else:
-        match_data = re.search(r'(\d{2})/(\d{2})/(\d{4})', nfce_url_string)
-        if match_data:
-            data_compra = match_data.group(0)
-        else:
-            data_compra = "N/A"
-
-    return valor_total, data_compra, cnpj, chave_acesso
-
-
-# --- Input da URL e Processamento ---
-nfce_url = st.text_input("Cole a URL da NFC-e (link do QR Code) aqui:")
-
-if nfce_url:
-    st.info("Acessando a URL e tentando extrair o conteúdo da NFC-e...")
+if url:
     try:
-        # AQUI É ONDE CHAMAMOS A FERRAMENTA DE NAVEGAÇÃO
-        # A query é uma descrição do que estamos procurando na página.
-        # O resultado será o texto extraído da página.
-        print(Browse(url=nfce_url, query="NFC-e content including product names, quantities, unit prices, total value, and issue date"))
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.content, 'html.parser')
 
-        st.success("Conteúdo da página solicitado. Aguardando a resposta da ferramenta de navegação para análise.")
-        st.info("No próximo passo, usarei a saída do 'Browse' para extrair os dados detalhados (produtos, quantidades, etc.).")
+        full_text = soup.get_text(" ", strip=True)
 
-        # Os dados abaixo serão substituídos pela extração do conteúdo da página no próximo passo
-        # Por enquanto, podemos mostrar uma extração inicial apenas da string da URL
-        valor_total_url, data_compra_url, cnpj_url, chave_acesso_url = extract_data_from_nfce_url_string(nfce_url)
-        st.subheader("Dados preliminares extraídos da URL (serão refinados):")
-        st.write(f"Valor Total (URL): R$ {valor_total_url}")
-        st.write(f"Data da Compra (URL): {data_compra_url}")
-        st.write(f"CNPJ do Emissor (URL): {cnpj_url}")
-        st.write(f"Chave de Acesso (URL): {chave_acesso_url}")
+        produtos = re.findall(r"(.+?)\(Código: (\d+)\)Qtde.:(\d+[\.,]?\d*)UN:(\w+)Vl. Unit.:(\d+[\.,]?\d*)Vl. Total(\d+[\.,]?\d*)", full_text)
 
-        # Comentar as seções de input de campos adicionais e botão de adicionar por enquanto,
-        # pois a lógica de preenchimento virá após o parse do conteúdo da página.
-        # # Para as colunas adicionais, podemos preencher com valores padrão ou solicitar ao usuário
-        # descricao = st.text_input("Descrição da Compra (Opcional)", value="")
-        # categoria = st.selectbox("Categoria", ["Alimentação", "Transporte", "Lazer", "Contas da Casa", "Outros"], index=0)
-        # sub_categoria = st.text_input("Sub-Categoria (Opcional)", value="")
-        # forma_pagamento = st.selectbox("Forma de Pagamento", ["Cartão de Crédito", "Cartão de Débito", "Dinheiro", "PIX"], index=0)
-        #
-        # # Data Pagamento: por padrão, igual à Data Compra, mas editável
-        # data_pagamento_dt = datetime.datetime.strptime(data_compra, "%d/%m/%Y").date() if data_compra != "N/A" else datetime.date.today()
-        # data_pagamento = st.date_input("Data do Pagamento", value=data_pagamento_dt)
-        # data_pagamento_str = data_pagamento.strftime("%d/%m/%Y")
-        #
-        #
-        # st.subheader("Dados Extraídos e Sugeridos:")
-        #
-        # # Crie um DataFrame para exibir os dados e facilitar a inserção
-        # data_for_display = {
-        #     "Data Compra": [data_compra],
-        #     "Descrição": [descricao],
-        #     "Categoria": [categoria],
-        #     "Sub-Categoria": [sub_categoria],
-        #     "Forma de Pagamento": [forma_pagamento],
-        #     "Valor": [valor_total],
-        #     "Data Pagamento": [data_pagamento_str],
-        #     "CNPJ Emissor (Auxiliar)": [cnpj], # Manter como auxiliar, não vai para a planilha
-        #     "Chave de Acesso (Auxiliar)": [chave_acesso] # Manter como auxiliar
-        # }
-        # df_display = pd.DataFrame(data_for_display)
-        # st.dataframe(df_display.iloc[:, :7]) # Exibe apenas as colunas da planilha
-        #
-        # # Apenas para mostrar ao usuário os dados auxiliares
-        # st.write(f"CNPJ do Emissor (extraído da URL): {cnpj}")
-        # st.write(f"Chave de Acesso (extraído da URL): {chave_acesso}")
-        #
-        #
-        # # --- Adicionar ao Google Sheets ---
-        # if st.button("Adicionar Dados à Planilha Google"):
-        #     try:
-        #         # Prepare a linha para inserção, na ordem exata das suas colunas
-        #         valor_para_sheet = valor_total
-        #         if isinstance(valor_para_sheet, str):
-        #             # Garante que 'R$' ou espaços não sejam enviados
-        #             valor_para_sheet = valor_para_sheet.replace('R$', '').strip()
-        #
-        #         row_to_insert = [
-        #             data_compra,        # Data Compra
-        #             descricao,          # Descrição
-        #             categoria,          # Categoria
-        #             sub_categoria,      # Sub-Categoria
-        #             forma_pagamento,    # Forma de Pagamento
-        #             valor_para_sheet,   # Valor
-        #             data_pagamento_str  # Data Pagamento
-        #         ]
-        #
-        #         sheet.append_row(row_to_insert)
-        #         st.success("Dados adicionados com sucesso à planilha Google!")
-        #     except Exception as e:
-        #         st.error(f"Erro ao adicionar dados à planilha: {e}")
-        #         st.info("Verifique se a conta de serviço tem permissão de escrita e se as colunas estão corretas.")
+        if produtos:
+            st.subheader("Produtos na nota")
+            df = pd.DataFrame(produtos, columns=["Produto", "Código", "Quantidade", "Unidade", "Valor Unitário", "Valor Total"])
 
-    except requests.exceptions.MissingSchema:
-        st.error("URL inválida. Certifique-se de incluir 'http://' ou 'https://'.")
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erro ao acessar a URL: {e}. Verifique se a URL está correta e é acessível.")
+            for col in ["Quantidade", "Valor Unitário", "Valor Total"]:
+                df[col] = df[col].str.replace(",", ".").astype(float)
+
+            st.dataframe(df)
+
+            if st.button("Enviar produtos para Google Sheets"):
+                hoje = datetime.date.today().strftime("%d/%m/%Y")
+                for i, row in df.iterrows():
+                    nova_linha = [hoje, row['Produto'], "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+                    sheet.append_row(nova_linha)
+                st.success("Produtos adicionados com sucesso!")
+        else:
+            st.warning("Nenhum produto encontrado. Verifique se a URL é de uma nota válida da SEFAZ RS.")
+
     except Exception as e:
-        st.error(f"Erro inesperado ao processar a URL: {e}")
-        st.info("O formato da URL pode não ser o esperado. Tente copiar o link completo do QR Code.")
+        st.error(f"Erro ao acessar a nota: {e}")
 
-else:
-    st.info("Cole a URL da NFC-e no campo acima para começar.")
-
-
-# --- Seção de Visualização de Dados Existentes ---
 st.markdown("---")
-st.header("Dados Atuais da Planilha")
 
-@st.cache_data(ttl=600) # Cache os dados por 10 minutos
-def load_data_from_sheets():
+st.header("📊 Histórico de Despesas")
+
+@st.cache_data(ttl=600)
+def carregar_dados():
     data = sheet.get_all_records()
     df = pd.DataFrame(data)
-    
-    # Adaptação para as novas colunas
+    if "Valor" in df.columns:
+        df["Valor"] = df["Valor"].astype(str).str.replace(',', '.').astype(float)
     if "Data Compra" in df.columns:
         df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
-    if "Valor" in df.columns: # Agora a coluna é "Valor"
-        df["Valor"] = df["Valor"].astype(str).str.replace(',', '.', regex=False)
-        df["Valor"] = pd.to_numeric(df["Valor"], errors='coerce')
-    if "Data Pagamento" in df.columns:
-        df["Data Pagamento"] = pd.to_datetime(df["Data Pagamento"], format="%d/%m/%Y", errors='coerce')
-
     return df
 
-if st.button("Recarregar Dados da Planilha"):
+if st.button("🔄 Atualizar Dados"):
     st.cache_data.clear()
-    df_existing = load_data_from_sheets()
-    st.success("Dados recarregados!")
+
+df_planilha = carregar_dados()
+
+if not df_planilha.empty:
+    st.dataframe(df_planilha)
+    total = df_planilha['Valor'].sum()
+    st.metric("Total de Despesas", locale.currency(total, grouping=True))
+
+    df_planilha['Mês'] = df_planilha['Data Compra'].dt.to_period('M').astype(str)
+    gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
+    st.bar_chart(gastos_mes.set_index('Mês'))
 else:
-    df_existing = load_data_from_sheets()
-
-if not df_existing.empty:
-    st.dataframe(df_existing)
-
-    st.subheader("Resumo das Despesas")
-    # A coluna de valor agora é "Valor"
-    total_despesas = df_existing["Valor"].sum() 
-    st.metric(label="Total de Despesas Registradas", value=locale.currency(total_despesas, grouping=True))
-
-    st.subheader("Despesas por Mês")
-    # Usa a coluna "Data Compra" para o mês
-    df_existing['Mês'] = df_existing['Data Compra'].dt.to_period('M')
-    despesas_por_mes = df_existing.groupby('Mês')['Valor'].sum().reset_index() # Usa a coluna "Valor"
-    despesas_por_mes['Mês'] = despesas_por_mes['Mês'].astype(str)
-
-    st.bar_chart(despesas_por_mes.set_index('Mês'))
-
-else:
-    st.info("Nenhum dado encontrado na planilha ainda.")
+    st.info("Nenhum dado registrado ainda.")
