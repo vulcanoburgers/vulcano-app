@@ -16,7 +16,13 @@ scope = ["https://spreadsheets.google.com/feeds",
 # Exemplo: 'vulcano-credentials.json'
 # Para funcionar, você precisará criar esse arquivo e carregar no mesmo diretório
 # do app, com acesso à planilha compartilhada.
-credentials = Credentials.from_service_account_file('vulcano-credentials.json', scopes=scope)
+import json
+from io import StringIO
+
+json_data = st.secrets["GOOGLE_CREDENTIALS"]
+credentials = Credentials.from_service_account_info(
+    json.loads(json_data), scopes=scope
+)
 gc = gspread.authorize(credentials)
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U/edit?usp=sharing"
