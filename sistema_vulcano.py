@@ -121,35 +121,43 @@ elif menu == "📈 Fluxo de Caixa":
 
     df_planilha = carregar_dados()
 
-    if not df_planilha.empty:
-        df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
+if not df_planilha.empty:
+    df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
+    df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
 
-        # Classificação automática de tipo
-        df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
+    # Filtros
+    st.subheader("📅 Filtros")
+    with st.expander("Filtrar por período ou categoria"):
+        data_inicio = st.date_input("Data inicial", value=min(df_planilha["Data Compra"]))
+        data_fim = st.date_input("Data final", value=max(df_planilha["Data Compra"]))
+        categoria_filtro = st.multiselect("Filtrar por categoria", options=df_planilha["Categoria"].unique())
 
-        entradas = df_planilha[df_planilha["Tipo"] == "Entrada"]
-        despesas = df_planilha[df_planilha["Tipo"] == "Despesa"]
+    df_filtrado = df_planilha[(df_planilha["Data Compra"] >= data_inicio) & (df_planilha["Data Compra"] <= data_fim)]
+    if categoria_filtro:
+        df_filtrado = df_filtrado[df_filtrado["Categoria"].isin(categoria_filtro)]
 
-        total_entradas = entradas["Valor"].sum()
-        total_despesas = despesas["Valor"].sum()
-        saldo = total_entradas - total_despesas
+    entradas = df_filtrado[df_filtrado["Tipo"] == "Entrada"]
+    despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total de Entradas", f"R$ {total_entradas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-        col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
-        col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    total_entradas = entradas["Valor"].sum()
+    total_despesas = despesas["Valor"].sum()
+    saldo = total_entradas - total_despesas
 
-        st.subheader("💸 Despesas")
-        st.dataframe(despesas, use_container_width=True)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de Entradas", f"R$ {total_entradas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
 
-        st.subheader("💰 Entradas")
-        st.dataframe(entradas, use_container_width=True)
+    st.subheader("💸 Despesas")
+    st.dataframe(despesas, use_container_width=True)
 
-        df_planilha['Mês'] = pd.to_datetime(df_planilha['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
-        gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
-        st.bar_chart(gastos_mes.set_index('Mês'))
-    else:
-        st.info("Nenhum dado registrado ainda.")
+    st.subheader("💰 Entradas")
+    st.dataframe(entradas, use_container_width=True)
+
+    df_filtrado['Mês'] = pd.to_datetime(df_filtrado['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
+    gastos_mes = df_filtrado.groupby('Mês')['Valor'].sum().reset_index()
+    st.bar_chart(gastos_mes.set_index('Mês'))
+
 
 # Aba Estoque
 elif menu == "📦 Estoque":
