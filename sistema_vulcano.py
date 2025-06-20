@@ -1,16 +1,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-# from PIL import Image # Não precisamos mais para QR Code de URL direta
-# import cv2 # Não precisamos mais para QR Code de URL direta
-# from pyzbar.pyzbar import decode # Não precisamos mais para QR Code de URL direta
+# Removidas as imports de imagem e QR code de imagem, pois o foco é a URL do site
+# from PIL import Image
+# import cv2
+# from pyzbar.pyzbar import decode
 from google.oauth2.service_account import Credentials
 import gspread
 import datetime
 import re
 import locale
-import requests
-# from io import BytesIO # Não precisamos mais para QR Code de URL direta
+import requests # Ainda útil para verificar acessibilidade da URL, mas o Browse fará o scrape
+# from io import BytesIO # Não é mais necessário para lidar com imagens de URL
 
 # --- Configuração de Localização para Formato de Moeda e Data ---
 try:
@@ -68,108 +69,119 @@ except Exception as e:
 st.set_page_config(page_title="Controle de Despesas - Vulcano", layout="centered")
 st.title("🔗 Leitor de NFC-e (URL)")
 
-st.write("Cole a URL completa do QR Code (link da NFC-e) para extrair os dados da compra.")
+st.write("Cole a URL completa da NFC-e (link do QR Code) para que o sistema tente extrair os dados da compra diretamente do site.")
 
 # --- Função para extrair dados da URL do QR Code (link da NFC-e) ---
-def extract_data_from_nfce_url(nfce_url):
-    # As URLs de NFC-e geralmente contêm os dados no formato de parâmetros ou na chave de acesso
-    # Ex: https://www.sefaz.rs.gov.br/NFCE/NFCE-CONS.aspx?chave=43230107297921000109650010000000001000000000&data=20231201&cnpj=07297921000109&valor=150.50&tpamb=1
-    
-    # Regex para a chave de acesso (44 dígitos)
-    match_chave = re.search(r'chave=(\d{44})', nfce_url)
+# Esta função será usada para uma extração inicial da URL, mas o scraping da página será mais completo
+def extract_data_from_nfce_url_string(nfce_url_string):
+    match_chave = re.search(r'chave=(\d{44})', nfce_url_string)
     chave_acesso = match_chave.group(1) if match_chave else "N/A"
 
-    # Regex para o CNPJ (14 dígitos)
-    match_cnpj = re.search(r'cnpj=(\d{14})', nfce_url)
+    match_cnpj = re.search(r'cnpj=(\d{14})', nfce_url_string)
     cnpj = match_cnpj.group(1) if match_cnpj else "N/A"
 
-    # Regex para o valor (formato numérico com ponto decimal)
-    match_valor = re.search(r'(valor|vICMS|vProd|vLiq|vNF|vCFe)=([\d.]+)', nfce_url, re.IGNORECASE)
+    match_valor = re.search(r'(valor|vICMS|vProd|vLiq|vNF|vCFe)=([\d.]+)', nfce_url_string, re.IGNORECASE)
     valor_total = "N/A"
     if match_valor:
-        valor_total = match_valor.group(2).replace('.', ',') # Converte para padrão BR
+        valor_total = match_valor.group(2).replace('.', ',')
 
-    # Regex para a data (formato ASDFDDMMYYYY ou DD/MM/YYYY)
-    match_data = re.search(r'data=(\d{8})', nfce_url) # Para data=YYYYMMDD
+    match_data = re.search(r'data=(\d{8})', nfce_url_string)
     if match_data:
         data_str = match_data.group(1)
-        data_compra = f"{data_str[6:8]}/{data_str[4:6]}/{data_str[0:4]}" # Converte para DD/MM/YYYY
+        data_compra = f"{data_str[6:8]}/{data_str[4:6]}/{data_str[0:4]}"
     else:
-        match_data = re.search(r'(\d{2})/(\d{2})/(\d{4})', nfce_url)
+        match_data = re.search(r'(\d{2})/(\d{2})/(\d{4})', nfce_url_string)
         if match_data:
-            data_compra = match_data.group(0) # Retorna a data completa DD/MM/YYYY
+            data_compra = match_data.group(0)
         else:
             data_compra = "N/A"
 
     return valor_total, data_compra, cnpj, chave_acesso
 
+
 # --- Input da URL e Processamento ---
 nfce_url = st.text_input("Cole a URL da NFC-e (link do QR Code) aqui:")
 
 if nfce_url:
-    st.info("Tentando extrair dados da URL...")
+    st.info("Acessando a URL e tentando extrair o conteúdo da NFC-e...")
     try:
-        # Aqui, a "url do QR Code" é o link para a consulta da NFC-e
-        valor_total, data_compra, cnpj, chave_acesso = extract_data_from_nfce_url(nfce_url)
+        # AQUI É ONDE CHAMAMOS A FERRAMENTA DE NAVEGAÇÃO
+        # A query é uma descrição do que estamos procurando na página.
+        # O resultado será o texto extraído da página.
+        print(Browse(url=nfce_url, query="NFC-e content including product names, quantities, unit prices, total value, and issue date"))
 
-        # Para as colunas adicionais, podemos preencher com valores padrão ou solicitar ao usuário
-        descricao = st.text_input("Descrição da Compra (Opcional)", value="")
-        categoria = st.selectbox("Categoria", ["Alimentação", "Transporte", "Lazer", "Contas da Casa", "Outros"], index=0)
-        sub_categoria = st.text_input("Sub-Categoria (Opcional)", value="")
-        forma_pagamento = st.selectbox("Forma de Pagamento", ["Cartão de Crédito", "Cartão de Débito", "Dinheiro", "PIX"], index=0)
-        
-        # Data Pagamento: por padrão, igual à Data Compra, mas editável
-        data_pagamento_dt = datetime.datetime.strptime(data_compra, "%d/%m/%Y").date() if data_compra != "N/A" else datetime.date.today()
-        data_pagamento = st.date_input("Data do Pagamento", value=data_pagamento_dt)
-        data_pagamento_str = data_pagamento.strftime("%d/%m/%Y")
+        st.success("Conteúdo da página solicitado. Aguardando a resposta da ferramenta de navegação para análise.")
+        st.info("No próximo passo, usarei a saída do 'Browse' para extrair os dados detalhados (produtos, quantidades, etc.).")
 
+        # Os dados abaixo serão substituídos pela extração do conteúdo da página no próximo passo
+        # Por enquanto, podemos mostrar uma extração inicial apenas da string da URL
+        valor_total_url, data_compra_url, cnpj_url, chave_acesso_url = extract_data_from_nfce_url_string(nfce_url)
+        st.subheader("Dados preliminares extraídos da URL (serão refinados):")
+        st.write(f"Valor Total (URL): R$ {valor_total_url}")
+        st.write(f"Data da Compra (URL): {data_compra_url}")
+        st.write(f"CNPJ do Emissor (URL): {cnpj_url}")
+        st.write(f"Chave de Acesso (URL): {chave_acesso_url}")
 
-        st.subheader("Dados Extraídos e Sugeridos:")
-        
-        # Crie um DataFrame para exibir os dados e facilitar a inserção
-        data_for_display = {
-            "Data Compra": [data_compra],
-            "Descrição": [descricao],
-            "Categoria": [categoria],
-            "Sub-Categoria": [sub_categoria],
-            "Forma de Pagamento": [forma_pagamento],
-            "Valor": [valor_total],
-            "Data Pagamento": [data_pagamento_str],
-            "CNPJ Emissor (Auxiliar)": [cnpj], # Manter como auxiliar, não vai para a planilha
-            "Chave de Acesso (Auxiliar)": [chave_acesso] # Manter como auxiliar
-        }
-        df_display = pd.DataFrame(data_for_display)
-        st.dataframe(df_display.iloc[:, :7]) # Exibe apenas as colunas da planilha
-        
-        # Apenas para mostrar ao usuário os dados auxiliares
-        st.write(f"CNPJ do Emissor (extraído da URL): {cnpj}")
-        st.write(f"Chave de Acesso (extraído da URL): {chave_acesso}")
-
-
-        # --- Adicionar ao Google Sheets ---
-        if st.button("Adicionar Dados à Planilha Google"):
-            try:
-                # Prepare a linha para inserção, na ordem exata das suas colunas
-                valor_para_sheet = valor_total
-                if isinstance(valor_para_sheet, str):
-                    # Garante que 'R$' ou espaços não sejam enviados
-                    valor_para_sheet = valor_para_sheet.replace('R$', '').strip()
-
-                row_to_insert = [
-                    data_compra,        # Data Compra
-                    descricao,          # Descrição
-                    categoria,          # Categoria
-                    sub_categoria,      # Sub-Categoria
-                    forma_pagamento,    # Forma de Pagamento
-                    valor_para_sheet,   # Valor
-                    data_pagamento_str  # Data Pagamento
-                ]
-                
-                sheet.append_row(row_to_insert)
-                st.success("Dados adicionados com sucesso à planilha Google!")
-            except Exception as e:
-                st.error(f"Erro ao adicionar dados à planilha: {e}")
-                st.info("Verifique se a conta de serviço tem permissão de escrita e se as colunas estão corretas.")
+        # Comentar as seções de input de campos adicionais e botão de adicionar por enquanto,
+        # pois a lógica de preenchimento virá após o parse do conteúdo da página.
+        # # Para as colunas adicionais, podemos preencher com valores padrão ou solicitar ao usuário
+        # descricao = st.text_input("Descrição da Compra (Opcional)", value="")
+        # categoria = st.selectbox("Categoria", ["Alimentação", "Transporte", "Lazer", "Contas da Casa", "Outros"], index=0)
+        # sub_categoria = st.text_input("Sub-Categoria (Opcional)", value="")
+        # forma_pagamento = st.selectbox("Forma de Pagamento", ["Cartão de Crédito", "Cartão de Débito", "Dinheiro", "PIX"], index=0)
+        #
+        # # Data Pagamento: por padrão, igual à Data Compra, mas editável
+        # data_pagamento_dt = datetime.datetime.strptime(data_compra, "%d/%m/%Y").date() if data_compra != "N/A" else datetime.date.today()
+        # data_pagamento = st.date_input("Data do Pagamento", value=data_pagamento_dt)
+        # data_pagamento_str = data_pagamento.strftime("%d/%m/%Y")
+        #
+        #
+        # st.subheader("Dados Extraídos e Sugeridos:")
+        #
+        # # Crie um DataFrame para exibir os dados e facilitar a inserção
+        # data_for_display = {
+        #     "Data Compra": [data_compra],
+        #     "Descrição": [descricao],
+        #     "Categoria": [categoria],
+        #     "Sub-Categoria": [sub_categoria],
+        #     "Forma de Pagamento": [forma_pagamento],
+        #     "Valor": [valor_total],
+        #     "Data Pagamento": [data_pagamento_str],
+        #     "CNPJ Emissor (Auxiliar)": [cnpj], # Manter como auxiliar, não vai para a planilha
+        #     "Chave de Acesso (Auxiliar)": [chave_acesso] # Manter como auxiliar
+        # }
+        # df_display = pd.DataFrame(data_for_display)
+        # st.dataframe(df_display.iloc[:, :7]) # Exibe apenas as colunas da planilha
+        #
+        # # Apenas para mostrar ao usuário os dados auxiliares
+        # st.write(f"CNPJ do Emissor (extraído da URL): {cnpj}")
+        # st.write(f"Chave de Acesso (extraído da URL): {chave_acesso}")
+        #
+        #
+        # # --- Adicionar ao Google Sheets ---
+        # if st.button("Adicionar Dados à Planilha Google"):
+        #     try:
+        #         # Prepare a linha para inserção, na ordem exata das suas colunas
+        #         valor_para_sheet = valor_total
+        #         if isinstance(valor_para_sheet, str):
+        #             # Garante que 'R$' ou espaços não sejam enviados
+        #             valor_para_sheet = valor_para_sheet.replace('R$', '').strip()
+        #
+        #         row_to_insert = [
+        #             data_compra,        # Data Compra
+        #             descricao,          # Descrição
+        #             categoria,          # Categoria
+        #             sub_categoria,      # Sub-Categoria
+        #             forma_pagamento,    # Forma de Pagamento
+        #             valor_para_sheet,   # Valor
+        #             data_pagamento_str  # Data Pagamento
+        #         ]
+        #
+        #         sheet.append_row(row_to_insert)
+        #         st.success("Dados adicionados com sucesso à planilha Google!")
+        #     except Exception as e:
+        #         st.error(f"Erro ao adicionar dados à planilha: {e}")
+        #         st.info("Verifique se a conta de serviço tem permissão de escrita e se as colunas estão corretas.")
 
     except requests.exceptions.MissingSchema:
         st.error("URL inválida. Certifique-se de incluir 'http://' ou 'https://'.")
@@ -197,7 +209,6 @@ def load_data_from_sheets():
         df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
     if "Valor" in df.columns: # Agora a coluna é "Valor"
         df["Valor"] = df["Valor"].astype(str).str.replace(',', '.', regex=False)
-        # CORREÇÃO AQUI: aspas simples para 'coerce'
         df["Valor"] = pd.to_numeric(df["Valor"], errors='coerce')
     if "Data Pagamento" in df.columns:
         df["Data Pagamento"] = pd.to_datetime(df["Data Pagamento"], format="%d/%m/%Y", errors='coerce')
