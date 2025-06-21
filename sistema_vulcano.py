@@ -194,7 +194,7 @@ if menu == "📥 Inserir NFC-e":
             else:
                 st.warning("Nenhum produto encontrado na NFC-e")
 
-# --- FLUXO DE CAIXA CORRIGIDO (TRATAMENTO DE KG/UN) ---
+# --- FLUXO DE CAIXA CORRIGIDO ---
 elif menu == "📈 Fluxo de Caixa":
     st.title("📈 Fluxo de Caixa")
     
@@ -207,23 +207,54 @@ elif menu == "📈 Fluxo de Caixa":
         df['Data Compra'] = pd.to_datetime(df['Data Compra'], dayfirst=True, errors='coerce').dt.date
         df = df.dropna(subset=['Data Compra'])
         
-        # Função para converter valores baseado na unidade
-        def converter_valor(valor_str, unidade):
+        # Função de conversão universal
+        def converter_valor(valor):
             try:
-                valor = float(valor_str.replace('.','').replace(',','.'))
-                return valor / 100 if unidade == 'UN' else valor  # Só divide por 100 se for UN
+                if isinstance(valor, (int, float)):
+                    return float(valor)
+                return float(str(valor).replace('.','').replace(',','.'))
             except:
                 return 0.0
         
-        # Aplica conversão correta
-        df['Valor Unit'] = df.apply(lambda x: converter_valor(str(x['Valor Unit']), x['Unid']), axis=1)
-        df['Valor Total'] = df['Quantidade'] * df['Valor Unit']
+        # Aplica conversão sem divisão por 100
+        df['Valor Unit'] = df['Valor Unit'].apply(converter_valor)
+        df['Quantidade'] = df['Quantidade'].apply(converter_valor)
+        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
         return df
 
-    # ... (restante do código do fluxo de caixa permanece igual)
+    df = carregar_dados()
+    
+    if not df.empty:
+        # Filtro de datas
+        min_date = df['Data Compra'].min()
+        max_date = df['Data Compra'].max()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            data_inicio = st.date_input("De", min_date, min_value=min_date, max_value=max_date)
+        with col2:
+            data_fim = st.date_input("Até", max_date, min_value=min_date, max_value=max_date)
+        
+        df_filtrado = df[(df['Data Compra'] >= data_inicio) & 
+                         (df['Data Compra'] <= data_fim)]
+        
+        # Formatação BR
+        def formatar_br(valor):
+            return f"R$ {valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
+        
+        st.dataframe(
+            df_filtrado.sort_values('Data Compra', ascending=False),
+            column_config={
+                "Data Compra": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                "Valor Unit": st.column_config.NumberColumn(format="%.2f"),
+                "Valor Total": st.column_config.NumberColumn(format="%.2f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
 
-# --- ESTOQUE CORRIGIDO (VALORES DECIMAIS) ---
+# --- ESTOQUE CORRIGIDO ---
 elif menu == "📦 Estoque":
     st.title("📦 Gestão de Estoque")
     
@@ -232,67 +263,50 @@ elif menu == "📦 Estoque":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Função de conversão segura
-        def converter_valor(valor_str, unidade):
+        # Função de conversão universal
+        def converter_valor(valor):
             try:
-                valor = float(str(valor_str).replace('.','').replace(',','.'))
-                return valor / 100 if unidade == 'UN' else valor
+                if isinstance(valor, (int, float)):
+                    return float(valor)
+                return float(str(valor).replace('.','').replace(',','.'))
             except:
                 return 0.0
         
         # Aplica conversão
-        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
-        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)
-        df['Valor Total'] = df['Quantidade'] * df['Valor Unit']
+        df['Valor Unit'] = df['Valor Unit'].apply(converter_valor)
+        df['Quantidade'] = df['Quantidade'].apply(converter_valor)
+        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
-        # Agrupa mantendo as unidades originais
-        df_agrupado = df.groupby(['Descrição', 'Unid']).agg({
+        # Agrupa por produto
+        return df.groupby(['Descrição', 'Unid']).agg({
             'Quantidade': 'sum',
             'Valor Unit': 'first',
             'Valor Total': 'sum'
         }).reset_index()
-        
-        return df_agrupado
-
+    
     df_estoque = carregar_estoque()
     
     if not df_estoque.empty:
         # Formatação BR
-        def formatar_br(valor, is_quantidade=False):
-            try:
-                if is_quantidade:
-                    return f"{valor:,.3f}".replace(".","X").replace(",",".").replace("X",",")
-                return f"R$ {valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
-            except:
-                return valor
+        def formatar_br(valor):
+            return f"{valor:,.2f}".replace(",","X").replace(".",",").replace("X",".")
         
         # Pré-formatação
         df_exibir = df_estoque.copy()
-        df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
-        df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
-        df_exibir['Quantidade'] = df_exibir.apply(
-            lambda x: formatar_br(x['Quantidade'], is_quantidade=True), 
-            axis=1
-        )
+        df_exibir['Qtd'] = df_exibir['Quantidade'].apply(formatar_br)
+        df_exibir['Valor Unit'] = 'R$ ' + df_exibir['Valor Unit'].apply(formatar_br)
+        df_exibir['Valor Total'] = 'R$ ' + df_exibir['Valor Total'].apply(formatar_br)
         
         # Exibição
         st.dataframe(
-            df_exibir,
-            column_config={
-                "Unid": st.column_config.TextColumn("Unid."),
-                "Quantidade": st.column_config.NumberColumn("Qtd", format="%.3f")
-            },
+            df_exibir[['Descrição', 'Unid', 'Qtd', 'Valor Unit', 'Valor Total']],
             hide_index=True,
             use_container_width=True
         )
         
         # Métricas
-        total_itens = df_estoque['Quantidade'].sum()
         valor_total = df_estoque['Valor Total'].sum()
-        
-        col1, col2 = st.columns(2)
-        col1.metric("Total de Itens", formatar_br(total_itens, is_quantidade=True))
-        col2.metric("Valor Total em Estoque", formatar_br(valor_total))
+        st.metric("Valor Total em Estoque", f"R$ {formatar_br(valor_total)}")
         
 # --- Página Dashboard ---
 elif menu == "📊 Dashboard":
