@@ -1,4 +1,4 @@
-# VULCANO APP - VERSÃO DEFINITIVA CORRIGIDA
+# VULCANO APP - VERSÃO 3.0 (CORREÇÃO FINAL)
 import streamlit as st
 import pandas as pd
 import datetime
@@ -22,35 +22,35 @@ def conectar_google_sheets():
 
 sheet = conectar_google_sheets()
 
-# Funções auxiliares corrigidas
+# Funções auxiliares CORRIGIDAS
 def formatar_br(valor, is_quantidade=False):
     try:
         if is_quantidade:
+            # Formata quantidade (3 decimais para KG, 0 para UN)
             return f"{float(valor):,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        # Formata valor monetário
         return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
         return valor
 
-def converter_valor(valor, unidade, is_quantidade=False):
+def converter_valor(valor, unidade, is_valor_unitario=False):
     try:
         valor_str = str(valor).strip()
         
-        # Remove todos os pontos (separadores de milhar)
-        valor_str = valor_str.replace(".", "")
-        # Substitui vírgula decimal por ponto
-        valor_str = valor_str.replace(",", ".")
+        # Remove pontos de milhar e converte vírgula decimal
+        valor_str = valor_str.replace(".", "").replace(",", ".")
         
         valor_float = float(valor_str)
         
-        # Aplica regras diferentes para quantidades e valores
-        if is_quantidade:
-            return valor_float  # Quantidades sempre direto
-        else:
-            return valor_float / 100 if unidade == 'UN' else valor_float
+        # REGRA CORRIGIDA:
+        # Divide por 100 APENAS para valores unitários (R$) quando UN
+        if is_valor_unitario and unidade == 'UN':
+            return valor_float / 100
+        return valor_float  # Mantém original para outros casos
     except:
         return 0.0
 
-# Página Estoque Corrigida
+# Página Estoque CORRIGIDA
 elif menu == "📦 Estoque":
     st.title("📦 Gestão de Estoque")
     
@@ -59,9 +59,9 @@ elif menu == "📦 Estoque":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Conversão correta dos valores
-        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
-        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid'], is_quantidade=True), axis=1)
+        # CONVERSÃO CORRETA:
+        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid'], is_valor_unitario=True), axis=1)
+        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)  # Quantidade NUNCA divide
         df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
         return df.groupby(['Descrição', 'Unid']).agg({
@@ -77,8 +77,9 @@ elif menu == "📦 Estoque":
         df_exibir = df_estoque.copy()
         df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
         df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
-        df_exibir['Quantidade'] = df_exibir['Quantidade'].apply(
-            lambda x: formatar_br(x, is_quantidade=True)
+        df_exibir['Quantidade'] = df_exibir.apply(
+            lambda x: formatar_br(x['Quantidade'], is_quantidade=True),
+            axis=1
         )
         
         st.dataframe(
@@ -95,7 +96,7 @@ elif menu == "📦 Estoque":
         valor_total = df_estoque['Valor Total'].sum()
         st.metric("Valor Total em Estoque", formatar_br(valor_total))
 
-# Página Fluxo de Caixa Corrigida
+# Página Fluxo de Caixa CORRIGIDA
 elif menu == "📈 Fluxo de Caixa":
     st.title("📈 Fluxo de Caixa")
     
@@ -104,9 +105,9 @@ elif menu == "📈 Fluxo de Caixa":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Conversão correta dos valores
-        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
-        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid'], is_quantidade=True), axis=1)
+        # CONVERSÃO CORRETA:
+        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid'], is_valor_unitario=True), axis=1)
+        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)  # Quantidade NUNCA divide
         df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
         # Conversão de datas
