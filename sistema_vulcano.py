@@ -25,7 +25,6 @@ sheet_url = "https://docs.google.com/spreadsheets/d/1dYXXL7d_MJVaDPnmOb6sBECemaV
 sheet = client.open_by_url(sheet_url).sheet1
 
 # Parser NFC-e
-
 def extrair_itens_por_texto(soup):
     tabela = soup.find("table", {"id": "tabResult"})
     if not tabela:
@@ -58,8 +57,7 @@ def extrair_itens_por_texto(soup):
                     "Unidade": unidade,
                     "Valor Unitário": round(float(unitario), 2),
                     "Valor Total": round(float(total), 2)
-})
-
+                })
             except:
                 continue
 
@@ -82,7 +80,7 @@ if menu == "📥 Inserir NFC-e":
 
             df = extrair_itens_por_texto(soup)
 
-             if not df.empty:
+            if not df.empty:
                 st.subheader("Produtos na nota")
                 df["Valor Total"] = df["Valor Total"].astype(float)
                 df["Valor Unitário"] = df["Valor Unitário"].astype(float)
@@ -94,28 +92,9 @@ if menu == "📥 Inserir NFC-e":
                         nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
                         sheet.append_row(nova_linha)
                     st.success("Produtos adicionados com sucesso!")
-
-
-    hoje = datetime.date.today().strftime("%d/%m/%Y")
-    for _, row in df.iterrows():
-        nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
-        sheet.append_row(nova_linha)
-    st.success("Produtos adicionados com sucesso!")
-                    hoje = datetime.date.today().strftime("%d/%m/%Y")
-                    for _, row in df.iterrows():
-                        nova_linha = [
-                            hoje,
-                            "Supermercado - Bistek",  # Descrição
-                            "Compras",               # Categoria
-                            "Supermercado",          # Sub-categoria
-                            "PIX",                   # Forma de Pagamento
-                            row['Valor Total'],      # Valor
-                            hoje                     # Data Pagamento
-                        ]
-                        sheet.append_row(nova_linha)
-                    st.success("Produtos adicionados com sucesso!")
             else:
                 st.warning("Nenhum produto encontrado.")
+
         except Exception as e:
             st.error(f"Erro ao acessar a nota: {e}")
 
@@ -137,7 +116,6 @@ elif menu == "📈 Fluxo de Caixa":
         if "Data Compra" in df.columns:
             df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
         return df
-df_estoque = carregar_estoque()
 
     if st.button("🔄 Atualizar Dados"):
         st.cache_data.clear()
@@ -147,8 +125,9 @@ df_estoque = carregar_estoque()
     if not df_planilha.empty:
         df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
 
-        # Classificação automática de tipo
-        df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
+        df_planilha["Tipo"] = df_planilha["Categoria"].apply(
+            lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa"
+        )
 
         entradas = df_planilha[df_planilha["Tipo"] == "Entrada"]
         despesas = df_planilha[df_planilha["Tipo"] == "Despesa"]
@@ -185,10 +164,10 @@ elif menu == "📦 Estoque":
             df["Valor"] = df["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
         if "Descrição" not in df.columns or "Valor" not in df.columns:
             return pd.DataFrame()
+        return df
 
-        return df  # Retorna os dados crus sem agrupar
-        
     df_estoque = carregar_estoque()
+
     if not df_estoque.empty:
         st.dataframe(df_estoque, use_container_width=True)
         total_estoque = df_estoque["Valor"].sum()
