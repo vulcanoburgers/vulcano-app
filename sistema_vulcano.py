@@ -242,7 +242,7 @@ elif menu == "📦 Estoque":
         
         # Aplica conversão
         df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
-        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade']), x['Unid']), axis=1)
+        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)
         df['Valor Total'] = df['Quantidade'] * df['Valor Unit']
         
         # Agrupa mantendo as unidades originais
