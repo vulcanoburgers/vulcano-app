@@ -1,7 +1,10 @@
-# VULCANO APP - VERSÃO FINAL COM CORREÇÃO DE UNIDADES
+# VULCANO APP - VERSÃO FINAL COMPLETA E CORRIGIDA
 import streamlit as st
 import pandas as pd
 import datetime
+import re
+import requests
+from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 import gspread
 
@@ -38,16 +41,125 @@ def converter_valor(valor, unidade):
         valor_str = valor_str.replace(",", ".")
         valor_float = float(valor_str)
         
-        # Divide por 100 apenas para UN (itens unitários)
-        return valor_float / 100 if unidade == 'UN' else valor_float
+        # Aplica regra de conversão baseada na unidade
+        if unidade == 'UN':
+            return valor_float / 100  # Divide por 100 para UN
+        return valor_float  # Mantém original para KG
     except:
         return 0.0
+
+# Parser NFC-e
+def parse_nfce(url):
+    try:
+        response = requests.get(url, timeout=10)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        tabela = soup.find("table", {"id": "tabResult"})
+        
+        itens = []
+        for linha in tabela.find_all("tr"):
+            texto = linha.get_text(" ", strip=True)
+            
+            if all(k in texto for k in ["Código:", "Qtde.:", "Vl. Unit.:"]):
+                try:
+                    # Extração dos dados
+                    nome = texto.split("(Código:")[0].strip()
+                    qtd = float(re.search(r"Qtde\.?:\s*([\d.,]+)", texto).group(1).replace('.', '').replace(',', '.'))
+                    unitario = float(re.search(r"Vl\. Unit\.?:\s*([\d.,]+)", texto).group(1).replace('.', '').replace(',', '.'))
+                    total = qtd * unitario
+                    unidade = re.search(r"UN:\s*(\w+)", texto).group(1)
+                    
+                    itens.append({
+                        "Descrição": nome,
+                        "Quantidade": qtd,
+                        "Unid": unidade,
+                        "Valor Unit": unitario,
+                        "Valor Total": total
+                    })
+                except Exception as e:
+                    st.warning(f"Item ignorado: {texto[:50]}... | Erro: {str(e)}")
+                    continue
+        
+        return pd.DataFrame(itens)
+    
+    except Exception as e:
+        st.error(f"Erro ao processar NFC-e: {str(e)}")
+        return pd.DataFrame()
 
 # Menu principal
 menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque"])
 
+# Página Inserir NFC-e
+if menu == "📥 Inserir NFC-e":
+    st.title("📥 Leitor de NFC-e")
+    url = st.text_input("Cole o link da NFC-e abaixo:", placeholder="https://...")
+    
+    if st.button("🔍 Analisar NFC-e") and url:
+        with st.spinner("Processando NFC-e..."):
+            df_nfce = parse_nfce(url)
+            
+            if not df_nfce.empty:
+                st.subheader("Itens da Nota Fiscal")
+                st.dataframe(
+                    df_nfce.style.format({
+                        "Valor Unit": formatar_br,
+                        "Valor Total": formatar_br
+                    }),
+                    use_container_width=True
+                )
+                
+                # Seção de dados complementares
+                with st.form("dados_complementares"):
+                    st.subheader("Informações Adicionais")
+                    
+                    col1, col2 = st.columns(2)
+                    fornecedor = col1.text_input("Fornecedor*", value="Bistek")
+                    categoria = col2.selectbox(
+                        "Categoria*",
+                        ["Matéria-Prima", "Embalagem", "Limpeza", "Despesas"]
+                    )
+                    
+                    col3, col4 = st.columns(2)
+                    forma_pagamento = col3.selectbox(
+                        "Forma de Pagamento*",
+                        ["PIX", "Cartão Crédito", "Cartão Débito", "Dinheiro", "Boleto"]
+                    )
+                    data_pagamento = col4.date_input(
+                        "Data de Pagamento*",
+                        datetime.date.today()
+                    )
+                    
+                    if st.form_submit_button("💾 Salvar na Planilha"):
+                        if not fornecedor:
+                            st.error("Fornecedor é obrigatório!")
+                        else:
+                            hoje = datetime.date.today().strftime("%d/%m/%Y")
+                            dados = []
+                            
+                            for _, row in df_nfce.iterrows():
+                                dados.append([
+                                    hoje,  # Data Compra
+                                    fornecedor,
+                                    categoria,
+                                    row["Descrição"],
+                                    row["Quantidade"],
+                                    row["Unid"],
+                                    row["Valor Unit"],
+                                    row["Valor Total"],
+                                    forma_pagamento,
+                                    data_pagamento.strftime("%d/%m/%Y")
+                                ])
+                            
+                            try:
+                                sheet.append_rows(dados)
+                                st.success("✅ Dados salvos com sucesso!")
+                                st.balloons()
+                            except Exception as e:
+                                st.error(f"🔴 Falha ao salvar: {str(e)}")
+            else:
+                st.warning("Nenhum produto encontrado na NFC-e")
+
 # Página Fluxo de Caixa
-if menu == "📈 Fluxo de Caixa":
+elif menu == "📈 Fluxo de Caixa":
     st.title("📈 Fluxo de Caixa")
     
     @st.cache_data(ttl=600)
@@ -144,12 +256,12 @@ elif menu == "📦 Estoque":
             hide_index=True,
             use_container_width=True
         )
+        
+        # Métricas
+        valor_total = df_estoque['Valor Total'].sum()
+        st.metric("Valor Total em Estoque", f"R$ {formatar_br(valor_total)}")
 
-# Outras páginas
-elif menu == "📥 Inserir NFC-e":
-    st.title("📥 Inserir NFC-e")
-    st.info("Funcionalidade em desenvolvimento")
-
+# Página Dashboard
 elif menu == "📊 Dashboard":
     st.title("📊 Dashboard")
     st.info("Funcionalidade em desenvolvimento")
