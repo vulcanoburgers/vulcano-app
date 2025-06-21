@@ -82,13 +82,20 @@ if menu == "📥 Inserir NFC-e":
 
             df = extrair_itens_por_texto(soup)
 
-            if not df.empty:
+             if not df.empty:
                 st.subheader("Produtos na nota")
                 df["Valor Total"] = df["Valor Total"].astype(float)
-df["Valor Unitário"] = df["Valor Unitário"].astype(float)
-st.dataframe(df)
+                df["Valor Unitário"] = df["Valor Unitário"].astype(float)
+                st.dataframe(df)
 
-if st.button("Enviar produtos para Google Sheets"):
+                if st.button("Enviar produtos para Google Sheets"):
+                    hoje = datetime.date.today().strftime("%d/%m/%Y")
+                    for _, row in df.iterrows():
+                        nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+                        sheet.append_row(nova_linha)
+                    st.success("Produtos adicionados com sucesso!")
+
+
     hoje = datetime.date.today().strftime("%d/%m/%Y")
     for _, row in df.iterrows():
         nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
@@ -180,7 +187,8 @@ elif menu == "📦 Estoque":
             return pd.DataFrame()
 
         return df  # Retorna os dados crus sem agrupar
-
+        
+    df_estoque = carregar_estoque()
     if not df_estoque.empty:
         st.dataframe(df_estoque, use_container_width=True)
         total_estoque = df_estoque["Valor"].sum()
