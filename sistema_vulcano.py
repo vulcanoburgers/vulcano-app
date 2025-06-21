@@ -86,19 +86,26 @@ if menu == "📥 Inserir NFC-e":
                 st.subheader("Produtos na nota")
                 df["Valor Total"] = df["Valor Total"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
                 df["Valor Unitário"] = df["Valor Unitário"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
-            st.dataframe(df)
+                st.dataframe(df)
+
                 if st.button("Enviar produtos para Google Sheets"):
                     hoje = datetime.date.today().strftime("%d/%m/%Y")
                     for _, row in df.iterrows():
-                        nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+                        nova_linha = [
+                            hoje,
+                            "Supermercado - Bistek",
+                            "Compras",
+                            "Supermercado",
+                            "PIX",
+                            row['Valor Total'],
+                            hoje
+                        ]
                         sheet.append_row(nova_linha)
                     st.success("Produtos adicionados com sucesso!")
             else:
                 st.warning("Nenhum produto encontrado.")
-
         except Exception as e:
             st.error(f"Erro ao acessar a nota: {e}")
-
 # Dashboard
 elif menu == "📊 Dashboard":
     st.title("📊 Dashboard Vulcano")
