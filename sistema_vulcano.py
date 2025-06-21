@@ -82,22 +82,28 @@ if menu == "📥 Inserir NFC-e":
 
             df = extrair_itens_por_texto(soup)
 
-if not df.empty:
-    st.subheader("Produtos na nota")
-    df["Valor Total"] = df["Valor Total"].astype(float)
-    df["Valor Unitário"] = df["Valor Unitário"].astype(float)
-    st.dataframe(df)
+            if not df.empty:
+                st.subheader("Produtos na nota")
+                df["Valor Total"] = df["Valor Total"].astype(float)
+                df["Valor Unitário"] = df["Valor Unitário"].astype(float)
+                st.dataframe(df)
 
-    if st.button("Enviar produtos para Google Sheets"):
-        hoje = datetime.date.today().strftime("%d/%m/%Y")
-        for _, row in df.iterrows():
-            nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
-            sheet.append_row(nova_linha)
-        st.success("Produtos adicionados com sucesso!")
-else:
-    st.warning("Nenhum produto encontrado.")
-
-
+                if st.button("Enviar produtos para Google Sheets"):
+                    hoje = datetime.date.today().strftime("%d/%m/%Y")
+                    for _, row in df.iterrows():
+                        nova_linha = [
+                            hoje,
+                            "Supermercado - Bistek",  # Descrição
+                            "Compras",               # Categoria
+                            "Supermercado",          # Sub-categoria
+                            "PIX",                   # Forma de Pagamento
+                            row['Valor Total'],      # Valor
+                            hoje                     # Data Pagamento
+                        ]
+                        sheet.append_row(nova_linha)
+                    st.success("Produtos adicionados com sucesso!")
+            else:
+                st.warning("Nenhum produto encontrado.")
         except Exception as e:
             st.error(f"Erro ao acessar a nota: {e}")
 
