@@ -106,10 +106,11 @@ def parse_nfce(url):
         st.error(f"🔴 Falha ao processar NFC-e: {str(e)}")
         return pd.DataFrame()
 
-# --- Formatação Brasileira ---
+# --- FUNÇÃO DE FORMATAÇÃO BRASILEIRA ---
 def formatar_br(valor):
     try:
         if isinstance(valor, (int, float)):
+            # Formata como R$ 1.234,56
             return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
         return valor
     except:
@@ -193,67 +194,44 @@ if menu == "📥 Inserir NFC-e":
             else:
                 st.warning("Nenhum produto encontrado na NFC-e")
 
-# --- Página Fluxo de Caixa ---
+# --- NOVA VERSÃO DO FLUXO DE CAIXA ---
 elif menu == "📈 Fluxo de Caixa":
     st.title("📈 Fluxo de Caixa")
     
     @st.cache_data(ttl=600)
     def carregar_dados():
-        try:
-            dados = sheet.get_all_records()
-            df = pd.DataFrame(dados)
-            
-            # Verifica colunas obrigatórias
-            colunas_necessarias = ["Data Compra", "Fornecedor", "Categoria", "Valor Total"]
-            for col in colunas_necessarias:
-                if col not in df.columns:
-                    st.error(f"Coluna faltando: '{col}'")
-                    return pd.DataFrame()
-            
-            # Conversão de valores
-            df["Valor Total"] = (
-                df["Valor Total"]
-                .astype(str)
-                .str.replace(r'[^\d,]', '', regex=True)
-                .str.replace('.', '', regex=False)
-                .str.replace(',', '.', regex=False)
-                .astype(float)
-            )
-            
-            # Classificação Receita/Despesa
-            df["Tipo"] = df["Categoria"].apply(
-                lambda x: "Receita" if str(x).lower() in ["vendas", "receita", "ifood"] else "Despesa"
-            )
-            
-            # Conversão de datas
-            df["Data Compra"] = pd.to_datetime(df["Data Compra"], dayfirst=True)
-            if "Data de pagamento" in df.columns:
-                df["Data de pagamento"] = pd.to_datetime(df["Data de pagamento"], dayfirst=True)
-            
-            return df
+        dados = sheet.get_all_records()
+        df = pd.DataFrame(dados)
         
-        except Exception as e:
-            st.error(f"Erro ao carregar dados: {str(e)}")
-            return pd.DataFrame()
-    
+        # Corrige valores unitários e totais
+        for col in ["Valor Unit", "Valor Total"]:
+            df[col] = (
+                df[col].astype(str)
+                .str.replace(r'[^\d,]', '', regex=True)  # Remove caracteres não numéricos
+                .str.replace('.', '', regex=False)       # Remove pontos de milhar
+                .str.replace(',', '.', regex=False)      # Converte vírgula para ponto decimal
+                .astype(float) / 100                     # Divide por 100 para corrigir casas decimais
+            )
+        
+        # Garante cálculo correto do valor total
+        df["Valor Total"] = df["Quantidade"] * df["Valor Unit"]
+        
+        return df
+
     df = carregar_dados()
     
     if not df.empty:
-        # Filtros por período
-        min_date = df["Data Compra"].min().date()
-        max_date = df["Data Compra"].max().date()
-        
+        # Filtros de data
         st.sidebar.header("Filtros")
-        col1, col2 = st.columns(2)
-        data_inicio = col1.date_input("De", min_date, min_value=min_date, max_value=max_date)
-        data_fim = col2.date_input("Até", max_date, min_value=min_date, max_value=max_date)
+        data_inicio = st.sidebar.date_input("De", df["Data Compra"].min())
+        data_fim = st.sidebar.date_input("Até", df["Data Compra"].max())
         
         df_filtrado = df[
-            (df["Data Compra"].dt.date >= data_inicio) & 
-            (df["Data Compra"].dt.date <= data_fim)
+            (df["Data Compra"] >= pd.to_datetime(data_inicio)) & 
+            (df["Data Compra"] <= pd.to_datetime(data_fim))
         ]
         
-        # Métricas financeiras
+        # Métricas formatadas
         receitas = df_filtrado[df_filtrado["Tipo"] == "Receita"]["Valor Total"].sum()
         despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]["Valor Total"].sum()
         saldo = receitas - despesas
@@ -264,28 +242,27 @@ elif menu == "📈 Fluxo de Caixa":
         col2.metric("Despesas", formatar_br(despesas))
         col3.metric("Saldo", formatar_br(saldo), delta=formatar_br(saldo))
         
-        # Abas de detalhes
-        tab1, tab2 = st.tabs(["📋 Detalhes", "📊 Gráficos"])
+        # Tabela formatada
+        st.subheader("Detalhes")
+        df_exibir = df_filtrado[[
+            "Data Compra", "Fornecedor", "Categoria", "Descrição",
+            "Quantidade", "Unid", "Valor Unit", "Valor Total",
+            "Forma de Pagamento", "Data de pagamento"
+        ]].copy()
         
-        with tab1:
-            st.dataframe(
-                df_filtrado.sort_values("Data Compra", ascending=False),
-                column_config={
-                    "Data Compra": st.column_config.DateColumn("Compra", format="DD/MM/YYYY"),
-                    "Data de pagamento": st.column_config.DateColumn("Pagamento", format="DD/MM/YYYY"),
-                    "Valor Total": st.column_config.NumberColumn("Valor", format="R$ %.2f")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
+        df_exibir["Valor Unit"] = df_exibir["Valor Unit"].apply(formatar_br)
+        df_exibir["Valor Total"] = df_exibir["Valor Total"].apply(formatar_br)
         
-        with tab2:
-            st.line_chart(
-                df_filtrado.groupby("Data Compra")["Valor Total"].sum(),
-                height=400
-            )
-    else:
-        st.warning("Nenhum dado encontrado para o período selecionado")
+        st.dataframe(
+            df_exibir,
+            hide_index=True,
+            column_config={
+                "Data Compra": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                "Data de pagamento": st.column_config.DateColumn(format="DD/MM/YYYY"),
+                "Quantidade": st.column_config.NumberColumn(format="%.3f")
+            },
+            use_container_width=True
+        )
 
 # --- Página Estoque ---
 elif menu == "📦 Estoque":
