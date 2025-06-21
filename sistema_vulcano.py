@@ -122,9 +122,7 @@ elif menu == "📈 Fluxo de Caixa":
         st.cache_data.clear()
 
     df_planilha = carregar_dados()
-    df_planilha["Valor"] = df_planilha["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
-    df_planilha["Valor"] = df_planilha["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
-
+    
     if not df_planilha.empty:
         df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
 
@@ -143,11 +141,10 @@ elif menu == "📈 Fluxo de Caixa":
         col2.metric("Total de Despesas", f"R$ {total_despesas:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
         col3.metric("Saldo Atual", f"R$ {saldo:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
 
-        st.subheader("💸 Despesas")
-        st.dataframe(despesas, use_container_width=True)
-
-        st.subheader("💰 Entradas")
-        st.dataframe(entradas, use_container_width=True)
+        st.subheader("📅 Fluxo de Caixa Consolidado")
+        pivot = df_planilha.pivot_table(index="Descrição", columns="Data Compra", values="Valor", aggfunc="sum", fill_value=0)
+        pivot = pivot.sort_index(axis=1)
+        st.dataframe(pivot.style.format("R$ {:.2f}"), use_container_width=True)
 
         df_planilha['Mês'] = pd.to_datetime(df_planilha['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
         gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
