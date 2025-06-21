@@ -51,7 +51,7 @@ def converter_valor(valor, unidade, is_valor_unitario=False):
         return 0.0
 
 # Página Estoque CORRIGIDA
-elif menu == "📦 Estoque":
+elif menu == "📦 Estoque"
     st.title("📦 Gestão de Estoque")
     
     @st.cache_data(ttl=3600)
