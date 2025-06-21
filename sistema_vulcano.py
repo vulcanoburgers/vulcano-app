@@ -1,4 +1,4 @@
-# VULCANO APP - VERSÃO FINAL CORRIGIDA
+# VULCANO APP - VERSÃO FINAL COM CORREÇÃO DE UNIDADES
 import streamlit as st
 import pandas as pd
 import datetime
@@ -29,11 +29,17 @@ def formatar_br(valor):
     except:
         return valor
 
-def converter_valor(valor):
+def converter_valor(valor, unidade):
     try:
-        if isinstance(valor, (int, float)):
-            return float(valor)
-        return float(str(valor).replace(".", "").replace(",", "."))
+        valor_str = str(valor)
+        # Remove todos os pontos (separadores de milhar)
+        valor_str = valor_str.replace(".", "")
+        # Substitui vírgula decimal por ponto
+        valor_str = valor_str.replace(",", ".")
+        valor_float = float(valor_str)
+        
+        # Divide por 100 apenas para UN (itens unitários)
+        return valor_float / 100 if unidade == 'UN' else valor_float
     except:
         return 0.0
 
@@ -49,10 +55,10 @@ if menu == "📈 Fluxo de Caixa":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Conversão de valores
-        for col in ['Valor Unit', 'Valor Total', 'Quantidade']:
-            if col in df.columns:
-                df[col] = df[col].apply(converter_valor)
+        # Conversão de valores considerando a unidade
+        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
+        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)
+        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
         # Conversão de datas
         df['Data Compra'] = pd.to_datetime(df['Data Compra'], dayfirst=True, errors='coerce').dt.date
@@ -76,14 +82,22 @@ if menu == "📈 Fluxo de Caixa":
         df_filtrado = df[(df['Data Compra'] >= data_inicio) & 
                          (df['Data Compra'] <= data_fim)]
         
+        # Formatação para exibição
+        df_exibir = df_filtrado.copy()
+        df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
+        df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
+        df_exibir['Quantidade'] = df_exibir.apply(
+            lambda x: f"{x['Quantidade']:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",") if x['Unid'] == 'KG' 
+                      else f"{int(x['Quantidade'])}",
+            axis=1
+        )
+        
         # Exibição
         st.dataframe(
-            df_filtrado.sort_values('Data Compra', ascending=False),
+            df_exibir.sort_values('Data Compra', ascending=False),
             column_config={
                 "Data Compra": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                "Valor Unit": st.column_config.NumberColumn("Valor Unitário", format="%.2f"),
-                "Valor Total": st.column_config.NumberColumn("Total", format="%.2f"),
-                "Quantidade": st.column_config.NumberColumn("Qtd", format="%.3f")
+                "Unid": st.column_config.TextColumn("Unidade")
             },
             hide_index=True,
             use_container_width=True
@@ -98,14 +112,10 @@ elif menu == "📦 Estoque":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Conversão de valores
-        for col in ['Valor Unit', 'Valor Total', 'Quantidade']:
-            if col in df.columns:
-                df[col] = df[col].apply(converter_valor)
-        
-        # Garante coluna de unidade
-        if 'Unid' not in df.columns:
-            df['Unid'] = 'UN'
+        # Conversão de valores considerando a unidade
+        df['Valor Unit'] = df.apply(lambda x: converter_valor(x['Valor Unit'], x['Unid']), axis=1)
+        df['Quantidade'] = df.apply(lambda x: converter_valor(x['Quantidade'], x['Unid']), axis=1)
+        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
         
         return df.groupby(['Descrição', 'Unid']).agg({
             'Quantidade': 'sum',
@@ -116,22 +126,26 @@ elif menu == "📦 Estoque":
     df_estoque = carregar_estoque()
     
     if not df_estoque.empty:
-        # Formatação
+        # Formatação para exibição
         df_exibir = df_estoque.copy()
         df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
         df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
+        df_exibir['Quantidade'] = df_exibir.apply(
+            lambda x: f"{x['Quantidade']:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",") if x['Unid'] == 'KG' 
+                      else f"{int(x['Quantidade'])}",
+            axis=1
+        )
         
         st.dataframe(
             df_exibir,
             column_config={
-                "Quantidade": st.column_config.NumberColumn("Qtd", format="%.3f"),
                 "Unid": st.column_config.TextColumn("Unidade")
             },
             hide_index=True,
             use_container_width=True
         )
 
-# Outras páginas (placeholders)
+# Outras páginas
 elif menu == "📥 Inserir NFC-e":
     st.title("📥 Inserir NFC-e")
     st.info("Funcionalidade em desenvolvimento")
