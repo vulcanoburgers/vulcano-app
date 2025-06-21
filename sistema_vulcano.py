@@ -84,7 +84,9 @@ if menu == "📥 Inserir NFC-e":
 
             if not df.empty:
                 st.subheader("Produtos na nota")
-                st.dataframe(df)
+                df["Valor Total"] = df["Valor Total"].astype(float)
+            df["Valor Unitário"] = df["Valor Unitário"].astype(float)
+            st.dataframe(df)
                 if st.button("Enviar produtos para Google Sheets"):
                     hoje = datetime.date.today().strftime("%d/%m/%Y")
                     for _, row in df.iterrows():
@@ -120,27 +122,17 @@ elif menu == "📈 Fluxo de Caixa":
         st.cache_data.clear()
 
     df_planilha = carregar_dados()
+    df_planilha["Valor"] = df_planilha["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
+    df_planilha["Valor"] = df_planilha["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
 
     if not df_planilha.empty:
         df_planilha["Data Compra"] = df_planilha["Data Compra"].dt.date
-        df_planilha["Tipo"] = df_planilha["Categoria"].apply(
-            lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa"
-        )
 
-        st.subheader("📅 Filtros")
-        with st.expander("Filtrar período e categoria"):
-            data_inicio = st.date_input("Data Inicial", value=min(df_planilha["Data Compra"]))
-            data_fim = st.date_input("Data Final", value=max(df_planilha["Data Compra"]))
-            categorias = df_planilha["Categoria"].unique()
-            categoria_filtro = st.multiselect("Filtrar por Categoria", options=categorias)
+        # Classificação automática de tipo
+        df_planilha["Tipo"] = df_planilha["Categoria"].apply(lambda x: "Entrada" if x.strip().lower() in ["receita", "venda", "ifood", "ticket", "stone", "sodexo"] else "Despesa")
 
-        # Aplicar filtros
-        df_filtrado = df_planilha[(df_planilha["Data Compra"] >= data_inicio) & (df_planilha["Data Compra"] <= data_fim)]
-        if categoria_filtro:
-            df_filtrado = df_filtrado[df_filtrado["Categoria"].isin(categoria_filtro)]
-
-        entradas = df_filtrado[df_filtrado["Tipo"] == "Entrada"]
-        despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]
+        entradas = df_planilha[df_planilha["Tipo"] == "Entrada"]
+        despesas = df_planilha[df_planilha["Tipo"] == "Despesa"]
 
         total_entradas = entradas["Valor"].sum()
         total_despesas = despesas["Valor"].sum()
@@ -157,14 +149,11 @@ elif menu == "📈 Fluxo de Caixa":
         st.subheader("💰 Entradas")
         st.dataframe(entradas, use_container_width=True)
 
-        df_filtrado['Mês'] = pd.to_datetime(df_filtrado['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
-        gastos_mes = df_filtrado.groupby('Mês')['Valor'].sum().reset_index()
-        st.subheader("📊 Gráfico de movimentação mensal")
+        df_planilha['Mês'] = pd.to_datetime(df_planilha['Data Compra'], errors='coerce').dt.to_period('M').astype(str)
+        gastos_mes = df_planilha.groupby('Mês')['Valor'].sum().reset_index()
         st.bar_chart(gastos_mes.set_index('Mês'))
-
     else:
         st.info("Nenhum dado registrado ainda.")
-
 
 # Aba Estoque
 elif menu == "📦 Estoque":
@@ -174,18 +163,16 @@ elif menu == "📦 Estoque":
     def carregar_estoque():
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
+        if "Valor" in df.columns:
+            df["Valor"] = df["Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
         if "Descrição" not in df.columns or "Valor" not in df.columns:
             return pd.DataFrame()
 
-        estoque = df.groupby("Descrição")["Valor"].agg(["count", "sum"]).reset_index()
-        estoque.columns = ["Produto", "Entradas", "Valor Total Estimado"]
-        return estoque.sort_values(by="Valor Total Estimado", ascending=False)
-
-    df_estoque = carregar_estoque()
+        return df  # Retorna os dados crus sem agrupar
 
     if not df_estoque.empty:
         st.dataframe(df_estoque, use_container_width=True)
-        total_estoque = df_estoque["Valor Total Estimado"].sum()
+        total_estoque = df_estoque["Valor"].sum()
         st.metric("Valor Total Estimado em Estoque", f"R$ {total_estoque:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
     else:
         st.info("Nenhum dado disponível para estoque.")
