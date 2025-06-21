@@ -85,10 +85,15 @@ if menu == "📥 Inserir NFC-e":
             if not df.empty:
                 st.subheader("Produtos na nota")
                 df["Valor Total"] = df["Valor Total"].astype(float)
-                df["Valor Unitário"] = df["Valor Unitário"].astype(float)
-                st.dataframe(df)
+df["Valor Unitário"] = df["Valor Unitário"].astype(float)
+st.dataframe(df)
 
-                if st.button("Enviar produtos para Google Sheets"):
+if st.button("Enviar produtos para Google Sheets"):
+    hoje = datetime.date.today().strftime("%d/%m/%Y")
+    for _, row in df.iterrows():
+        nova_linha = [hoje, "Supermercado - Bistek", "Compras", "Supermercado", "PIX", row['Valor Total'], hoje]
+        sheet.append_row(nova_linha)
+    st.success("Produtos adicionados com sucesso!")
                     hoje = datetime.date.today().strftime("%d/%m/%Y")
                     for _, row in df.iterrows():
                         nova_linha = [
@@ -125,6 +130,7 @@ elif menu == "📈 Fluxo de Caixa":
         if "Data Compra" in df.columns:
             df["Data Compra"] = pd.to_datetime(df["Data Compra"], format="%d/%m/%Y", errors='coerce')
         return df
+df_estoque = carregar_estoque()
 
     if st.button("🔄 Atualizar Dados"):
         st.cache_data.clear()
