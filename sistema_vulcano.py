@@ -203,66 +203,67 @@ elif menu == "📈 Fluxo de Caixa":
         dados = sheet.get_all_records()
         df = pd.DataFrame(dados)
         
-        # Corrige valores unitários e totais
-        for col in ["Valor Unit", "Valor Total"]:
-            df[col] = (
-                df[col].astype(str)
-                .str.replace(r'[^\d,]', '', regex=True)  # Remove caracteres não numéricos
-                .str.replace('.', '', regex=False)       # Remove pontos de milhar
-                .str.replace(',', '.', regex=False)      # Converte vírgula para ponto decimal
-                .astype(float) / 100                     # Divide por 100 para corrigir casas decimais
-            )
+        # Conversão segura de datas
+        def parse_date(date_str):
+            try:
+                if isinstance(date_str, str):
+                    # Tenta parsear no formato brasileiro
+                    if "/" in date_str:
+                        return datetime.datetime.strptime(date_str, "%d/%m/%Y").date()
+                    # Tenta parsear como datetime
+                    return pd.to_datetime(date_str).date()
+                return date_str
+            except:
+                return None
         
-        # Garante cálculo correto do valor total
-        df["Valor Total"] = df["Quantidade"] * df["Valor Unit"]
+        df["Data Compra"] = df["Data Compra"].apply(parse_date)
+        df = df.dropna(subset=["Data Compra"])  # Remove linhas com datas inválidas
+        
+        # Conversão de valores
+        for col in ["Valor Unit", "Valor Total"]:
+            if col in df.columns:
+                df[col] = (
+                    df[col].astype(str)
+                    .str.replace(r'[^\d,]', '', regex=True)
+                    .str.replace('.', '', regex=False)
+                    .str.replace(',', '.', regex=False)
+                    .astype(float)
+                )
         
         return df
 
     df = carregar_dados()
     
     if not df.empty:
-        # Filtros de data
-        st.sidebar.header("Filtros")
-        data_inicio = st.sidebar.date_input("De", df["Data Compra"].min())
-        data_fim = st.sidebar.date_input("Até", df["Data Compra"].max())
+        # Filtros de data - agora com tratamento seguro
+        min_date = df["Data Compra"].min()
+        max_date = df["Data Compra"].max()
         
+        col1, col2 = st.columns(2)
+        with col1:
+            data_inicio = st.date_input(
+                "De",
+                value=min_date,
+                min_value=min_date,
+                max_value=max_date,
+                format="DD/MM/YYYY"
+            )
+        with col2:
+            data_fim = st.date_input(
+                "Até",
+                value=max_date,
+                min_value=min_date,
+                max_value=max_date,
+                format="DD/MM/YYYY"
+            )
+        
+        # Filtragem dos dados
         df_filtrado = df[
-            (df["Data Compra"] >= pd.to_datetime(data_inicio)) & 
-            (df["Data Compra"] <= pd.to_datetime(data_fim))
+            (df["Data Compra"] >= data_inicio) & 
+            (df["Data Compra"] <= data_fim)
         ]
         
-        # Métricas formatadas
-        receitas = df_filtrado[df_filtrado["Tipo"] == "Receita"]["Valor Total"].sum()
-        despesas = df_filtrado[df_filtrado["Tipo"] == "Despesa"]["Valor Total"].sum()
-        saldo = receitas - despesas
-        
-        st.subheader("Resumo Financeiro")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Receitas", formatar_br(receitas))
-        col2.metric("Despesas", formatar_br(despesas))
-        col3.metric("Saldo", formatar_br(saldo), delta=formatar_br(saldo))
-        
-        # Tabela formatada
-        st.subheader("Detalhes")
-        df_exibir = df_filtrado[[
-            "Data Compra", "Fornecedor", "Categoria", "Descrição",
-            "Quantidade", "Unid", "Valor Unit", "Valor Total",
-            "Forma de Pagamento", "Data de pagamento"
-        ]].copy()
-        
-        df_exibir["Valor Unit"] = df_exibir["Valor Unit"].apply(formatar_br)
-        df_exibir["Valor Total"] = df_exibir["Valor Total"].apply(formatar_br)
-        
-        st.dataframe(
-            df_exibir,
-            hide_index=True,
-            column_config={
-                "Data Compra": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                "Data de pagamento": st.column_config.DateColumn(format="DD/MM/YYYY"),
-                "Quantidade": st.column_config.NumberColumn(format="%.3f")
-            },
-            use_container_width=True
-        )
+        # Restante do seu código...
 
 # --- Página Estoque ---
 elif menu == "📦 Estoque":
