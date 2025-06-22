@@ -52,39 +52,23 @@ def formatar_br(valor, is_quantidade=False):
 # Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
 # Aplica correção de divisão por 100 se o valor for um inteiro que representa decimais (com base no tipo original e unidade).
 def converter_valor(valor, unidade, is_valor_unitario=False):
-    valor_float_final = 0.0 # Valor final após todas as conversões e ajustes
-
-    # 1. Tenta converter o valor para float.
-    # Esta é a etapa mais crítica para lidar com strings e garantir que temos um número.
     try:
-        # Se o valor já é um int ou float (como o gspread pode retornar para números), usa-o diretamente.
         if isinstance(valor, (int, float)):
-            valor_float_base = float(valor)
-        else: # Se é uma string, processa a formatação brasileira.
+            valor_float = float(valor)
+        else:
             valor_str = str(valor).strip()
-            # Remove pontos de milhar, depois substitui vírgula decimal por ponto.
             valor_str = valor_str.replace(".", "").replace(",", ".")
-            valor_float_base = float(valor_str)
+            valor_float = float(valor_str)
+
+        # CASO ESPECIAL: se veio como inteiro (sem casas decimais) e está muito grande
+        if isinstance(valor, int) and valor_float > 1000:
+            valor_float = valor_float / 100
+
+        return valor_float
+
     except (ValueError, TypeError):
-        # Em caso de falha total na conversão para float, exibe um erro e retorna 0.0.
-        st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}) para número. Verifique o formato na planilha. Valor definido para 0.0.")
-        return 0.0 # Sai da função aqui se não for possível converter para float
-
-    # 2. Aplica a lógica de divisão por 100 com base no tipo ORIGINAL do valor e na unidade.
-    # Esta lógica é crucial porque a depuração mostrou que valores decimais da planilha
-    # estão chegando como INTEIROS de gspread.
-    if isinstance(valor, int): # Se o valor original lido por gspread foi um inteiro
-        if is_valor_unitario: # Se for um "Valor Unitário" (preço), sempre dividir por 100.
-            valor_float_final = valor_float_base / 100
-        elif unidade == 'KG': # Se for uma "Quantidade" e a unidade for "KG", dividir por 100.
-            valor_float_final = valor_float_base / 100
-        else: # Para outras quantidades (ex: UN), se vieram como inteiros, mantê-los.
-            valor_float_final = valor_float_base
-    else: # Se o valor original NÃO foi um inteiro (era float ou string com vírgula/ponto lida como string)
-          # Isso significa que a conversão base em float_valor_base já está correta.
-        valor_float_final = valor_float_base
-
-    return valor_float_final
+        st.error(f"Erro ao converter valor: {valor}")
+        return 0.0
 
 # --- Definição do Menu Principal ---
 # Define o menu de navegação para a aplicação Streamlit usando um botão de rádio na barra lateral.
