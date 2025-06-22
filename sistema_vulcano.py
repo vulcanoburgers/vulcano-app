@@ -17,7 +17,7 @@ def conectar_google_sheets():
         # Define o escopo para o acesso à API do Google Sheets.
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         # Carrega as credenciais a partir dos segredos do Streamlit.
-        # CORREÇÃO: Voltando para 'st.secrets' diretamente, pois as credenciais estão no nível raiz.
+        # As credenciais estão no nível raiz de 'st.secrets'.
         creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
         # Autoriza o cliente gspread com as credenciais carregadas.
         client = gspread.authorize(creds)
@@ -54,30 +54,31 @@ def formatar_br(valor, is_quantidade=False):
 def converter_valor(valor, unidade, is_valor_unitario=False):
     valor_float = 0.0 # Valor padrão em caso de falha na conversão
     
-    # Tenta converter o valor diretamente para float.
-    # Isso funciona se o valor já é um número (int/float) ou uma string em formato de ponto decimal (ex: "14.90").
+    # FORÇA a conversão para string para garantir que os métodos .replace() possam ser usados.
+    # Isso é crucial para tratar valores que podem vir como inteiros de gspread, mas que na planilha são decimais.
+    valor_str_processed = str(valor).strip()
+
+    # Remove pontos (que são separadores de milhar no Brasil)
+    # Ex: "1.234,56" se torna "1234,56"
+    valor_str_processed = valor_str_processed.replace(".", "")
+    
+    # Substitui a vírgula (separador decimal no Brasil) por ponto (separador decimal em Python)
+    # Ex: "1234,56" se torna "1234.56"
+    valor_str_processed = valor_str_processed.replace(",", ".")
+
     try:
-        valor_float = float(valor)
+        # Tenta converter a string processada para float.
+        valor_float = float(valor_str_processed)
     except (ValueError, TypeError):
-        # Se a conversão direta falhar, assume que é uma string que precisa ser tratada.
-        valor_str = str(valor).strip()
-        
-        # Primeiro, remove os pontos que funcionam como separadores de milhar no Brasil (ex: "1.234,56" -> "1234,56").
-        # Isso é importante para que a vírgula decimal seja o único separador restante.
-        valor_str = valor_str.replace(".", "")
-        
-        # Em seguida, substitui a vírgula decimal por ponto decimal (ex: "1234,56" -> "1234.56").
-        # O Python e Pandas esperam o ponto como separador decimal para floats.
-        valor_str = valor_str.replace(",", ".")
-        
-        try:
-            # Tenta converter para float novamente após as substituições.
-            valor_float = float(valor_str)
-        except (ValueError, TypeError):
-            # Se ainda assim não conseguir converter (ex: a string ficou inválida após as substituições),
-            # exibe um erro no Streamlit para depuração e define o valor como 0.0.
-            st.error(f"Erro grave ao converter o valor '{valor}' para número. Verifique o formato na planilha. Valor definido para 0.0.")
-            valor_float = 0.0 # Garante que o valor padrão seja retornado
+        # Se a conversão falhar (ex: string não numérica ou vazia), exibe um erro e usa 0.0.
+        st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}, processado: '{valor_str_processed}') para número. Verifique o formato na planilha. Valor definido para 0.0.")
+        valor_float = 0.0 # Garante que o valor padrão seja retornado
+
+    # --- LINHAS DE DEPURACAO ATIVAS ---
+    # Ativa as mensagens de depuração especificamente para unidades 'UN'.
+    if unidade == 'UN':
+        st.write(f"DEBUG (UN): Original: '{valor}' (Tipo: {type(valor)}), Processado String: '{valor_str_processed}', Float Convertido: {valor_float}")
+    # --- FIM LINHAS DE DEPURACAO ATIVAS ---
 
     # Lógica de ajuste para valor unitário em KG.
     # Se 'is_valor_unitario' for True e a 'unidade' for 'KG', divide o valor por 100.
@@ -85,6 +86,8 @@ def converter_valor(valor, unidade, is_valor_unitario=False):
     # para a representação correta em Reais.
     if is_valor_unitario and unidade == 'KG':
         return valor_float / 100
+    
+    # Para outras unidades (como 'UN'), retorna o valor float diretamente.
     return valor_float
 
 # --- Definição do Menu Principal ---
@@ -239,3 +242,4 @@ elif menu == "📦 Estoque":
         st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
     else:
         st.warning("Nenhum item em estoque encontrado.")
+
