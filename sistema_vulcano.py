@@ -53,21 +53,25 @@ def formatar_br(valor, is_quantidade=False):
 # Aplica correção de divisão por 100 se o valor for um inteiro que representa decimais (com base no tipo original e unidade).
 def converter_valor(valor, unidade, is_valor_unitario=False):
     try:
-        if isinstance(valor, (int, float)):
-            valor_float = float(valor)
-        else:
-            valor_str = str(valor).strip()
-            valor_str = valor_str.replace(".", "").replace(",", ".")
-            valor_float = float(valor_str)
+        # Trata valor como string e limpa
+        valor_str = str(valor).strip()
 
-        # CASO ESPECIAL: se veio como inteiro (sem casas decimais) e está muito grande
-        if isinstance(valor, int) and valor_float > 1000:
+        # Primeiro: tenta detectar vírgula como decimal e converter
+        if "," in valor_str:
+            valor_str = valor_str.replace(".", "").replace(",", ".")
+            return float(valor_str)
+
+        # Segundo: se for int ou float grande sem vírgula, tenta ajustar baseado em tamanho
+        valor_float = float(valor_str)
+
+        # Lógica especial para valores em KG ou preços sem centavos explícitos
+        if valor_float >= 100 and (unidade.upper() == "KG" or is_valor_unitario):
             valor_float = valor_float / 100
 
         return valor_float
 
     except (ValueError, TypeError):
-        st.error(f"Erro ao converter valor: {valor}")
+        st.error(f"Erro ao converter valor: {valor} (unidade: {unidade})")
         return 0.0
 
 # --- Definição do Menu Principal ---
