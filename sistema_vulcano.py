@@ -48,32 +48,26 @@ def formatar_br(valor, is_quantidade=False):
     except (ValueError, TypeError):
         # Retorna o valor original se a formatação falhar (ex: se o valor não for um número).
         return valor
-
-# Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
-# Aplica correção de divisão por 100 se o valor for um inteiro que representa decimais (com base no tipo original e unidade).
-def converter_valor(valor, unidade, is_valor_unitario=False):
+        
+# Converte Valor
+def converter_valor(valor, *args, **kwargs):
     try:
-        # Trata valor como string e limpa
-        valor_str = str(valor).strip()
-
-        # Primeiro: tenta detectar vírgula como decimal e converter
-        if "," in valor_str:
-            valor_str = valor_str.replace(".", "").replace(",", ".")
-            return float(valor_str)
-
-        # Segundo: se for int ou float grande sem vírgula, tenta ajustar baseado em tamanho
-        valor_float = float(valor_str)
-
-        # Lógica especial para valores em KG ou preços sem centavos explícitos
-        if valor_float >= 100 and (unidade.upper() == "KG" or is_valor_unitario):
-            valor_float = valor_float / 100
-
-        return valor_float
+        return float(valor)
+    except:
+        return 0.0
 
     except (ValueError, TypeError):
         st.error(f"Erro ao converter valor: {valor} (unidade: {unidade})")
         return 0.0
-
+# Formatar em R$        
+def formatar_br(valor, is_quantidade=False):
+    try:
+        if is_quantidade:
+            return f"{valor:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return valor
+        
 # --- Definição do Menu Principal ---
 # Define o menu de navegação para a aplicação Streamlit usando um botão de rádio na barra lateral.
 menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque"])
