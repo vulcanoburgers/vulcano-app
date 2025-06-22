@@ -15,7 +15,8 @@ st.set_page_config(page_title="Vulcano App", layout="wide")
 def conectar_google_sheets():
     try:
         # Define o escopo para o acesso à API do Google Sheets.
-        scope = ["https://www.googleapis.com/h/spreadsheets"]
+        # CORREÇÃO: Escopo alterado de "/h/spreadsheets" para "/auth/spreadsheets"
+        scope = ["https://www.googleapis.com/auth/spreadsheets"]
         # Carrega as credenciais a partir dos segredos do Streamlit.
         # As credenciais estão no nível raiz de 'st.secrets'.
         creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
