@@ -52,32 +52,32 @@ def formatar_br(valor, is_quantidade=False):
 # Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
 # Ajusta 'Valor Unit' se a unidade for 'UN' (assumindo que vem como centavos) para refletir o custo por unidade (R$/un).
 def converter_valor(valor, unidade, is_valor_unitario=False):
-    valor_float = 0.0 # Valor padrão em caso de falha na conversão
-    
-    # FORÇA a conversão para string para garantir que os métodos .replace() possam ser usados.
-    valor_str_processed = str(valor).strip()
+    valor_float_base = 0.0 # Valor base antes de qualquer ajuste específico de unidade
 
-    # Remove pontos (que são separadores de milhar no Brasil)
-    valor_str_processed = valor_str_processed.replace(".", "")
-    
-    # Substitui a vírgula (separador decimal no Brasil) por ponto (separador decimal em Python)
-    valor_str_processed = valor_str_processed.replace(",", ".")
-
+    # Tenta converter o valor para float de forma segura, considerando o tipo original
     try:
-        # Tenta converter a string processada para float.
-        valor_float = float(valor_str_processed)
+        # Se o valor já é um número (int ou float), usa-o diretamente
+        if isinstance(valor, (int, float)):
+            valor_float_base = float(valor)
+        else: # Se for uma string, tenta processar o formato brasileiro
+            valor_str = str(valor).strip()
+            # Remove pontos de milhar, depois substitui vírgula decimal por ponto
+            valor_str = valor_str.replace(".", "").replace(",", ".")
+            valor_float_base = float(valor_str)
     except (ValueError, TypeError):
-        st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}, processado: '{valor_str_processed}') para número. Verifique o formato na planilha. Valor definido para 0.0.")
-        valor_float = 0.0 
+        # Se falhar a conversão de qualquer forma, loga o erro e define como 0.0
+        st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}) para número. Verifique o formato na planilha. Valor definido para 0.0.")
+        valor_float_base = 0.0
 
-    # Lógica de ajuste para valor unitário.
+    # Lógica de ajuste final para valores unitários.
     # Esta divisão por 100 é aplicada APENAS se 'is_valor_unitario' for True e a 'unidade' for 'UN'.
     # Isso se baseia na depuração anterior que mostrou que valores 'UN' chegam como inteiros (centavos).
-    if is_valor_unitario and unidade == 'UN': # REMOVIDO 'KG' daqui
-        return valor_float / 100
+    if is_valor_unitario and unidade == 'UN':
+        return valor_float_base / 100
     
-    # Para unidades 'KG' e outras, ou valores que não são unitários, retorna o valor float diretamente.
-    return valor_float
+    # Para todas as outras unidades (incluindo 'KG') ou valores que não são unitários,
+    # retorna o valor float base como está.
+    return valor_float_base
 
 # --- Definição do Menu Principal ---
 # Define o menu de navegação para a aplicação Streamlit usando um botão de rádio na barra lateral.
