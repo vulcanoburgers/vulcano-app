@@ -17,7 +17,8 @@ def conectar_google_sheets():
         # Define o escopo para o acesso à API do Google Sheets.
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         # Carrega as credenciais a partir dos segredos do Streamlit.
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        # CORREÇÃO: Voltando para 'st.secrets' diretamente, pois as credenciais estão no nível raiz.
+        creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
         # Autoriza o cliente gspread com as credenciais carregadas.
         client = gspread.authorize(creds)
         # Abre a planilha específica pela sua chave (ID) e seleciona a primeira aba.
