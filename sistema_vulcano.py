@@ -239,8 +239,3 @@ elif menu == "📦 Estoque":
         st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
     else:
         st.warning("Nenhum item em estoque encontrado.")
-        # Calcula e exibe o valor total de todos os itens em estoque.
-        valor_total_estoque = df_estoque['Valor Total'].sum()
-        st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
-    else:
-        st.warning("Nenhum item em estoque encontrado.")
