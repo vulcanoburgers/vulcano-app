@@ -15,7 +15,6 @@ st.set_page_config(page_title="Vulcano App", layout="wide")
 def conectar_google_sheets():
     try:
         # Define o escopo para o acesso à API do Google Sheets.
-        # CORREÇÃO: Escopo alterado de "/h/spreadsheets" para "/auth/spreadsheets"
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         # Carrega as credenciais a partir dos segredos do Streamlit.
         # As credenciais estão no nível raiz de 'st.secrets'.
@@ -51,7 +50,7 @@ def formatar_br(valor, is_quantidade=False):
         return valor
 
 # Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
-# Ajusta 'Valor Unit' se a unidade for 'KG' ou 'UN' para refletir o custo por unidade (R$/kg ou R$/un).
+# Ajusta 'Valor Unit' se a unidade for 'UN' (assumindo que vem como centavos) para refletir o custo por unidade (R$/un).
 def converter_valor(valor, unidade, is_valor_unitario=False):
     valor_float = 0.0 # Valor padrão em caso de falha na conversão
     
@@ -71,18 +70,13 @@ def converter_valor(valor, unidade, is_valor_unitario=False):
         st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}, processado: '{valor_str_processed}') para número. Verifique o formato na planilha. Valor definido para 0.0.")
         valor_float = 0.0 
 
-    # --- LINHAS DE DEPURACAO ATIVAS (comentadas após depuração) ---
-    # st.write(f"DEBUG: Original: '{valor}' (Tipo: {type(valor)}), Processado String: '{valor_str_processed}', Float Convertido: {valor_float}, Unidade: {unidade}")
-    # --- FIM LINHAS DE DEPURACAO ATIVAS ---
-
     # Lógica de ajuste para valor unitário.
-    # Se 'is_valor_unitario' for True e a 'unidade' for 'KG' ou 'UN', divide o valor por 100.
-    # Isso é feito para converter valores que podem estar em centavos/kg ou centavos/unidade (ex: 1490 para 14,90 R$)
-    # para a representação correta em Reais.
-    if is_valor_unitario and (unidade == 'KG' or unidade == 'UN'):
+    # Esta divisão por 100 é aplicada APENAS se 'is_valor_unitario' for True e a 'unidade' for 'UN'.
+    # Isso se baseia na depuração anterior que mostrou que valores 'UN' chegam como inteiros (centavos).
+    if is_valor_unitario and unidade == 'UN': # REMOVIDO 'KG' daqui
         return valor_float / 100
     
-    # Para outras unidades ou valores que não são unitários, retorna o valor float diretamente.
+    # Para unidades 'KG' e outras, ou valores que não são unitários, retorna o valor float diretamente.
     return valor_float
 
 # --- Definição do Menu Principal ---
