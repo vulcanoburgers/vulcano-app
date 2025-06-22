@@ -53,7 +53,7 @@ def formatar_br(valor, is_quantidade=False):
 def converter_valor(valor, *args, **kwargs):
     try:
         return float(valor)
-    except
+    except :
         return 0.0
 
     except (ValueError, TypeError):
