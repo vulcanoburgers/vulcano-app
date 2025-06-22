@@ -49,35 +49,40 @@ def formatar_br(valor, is_quantidade=False):
         # Retorna o valor original se a formatação falhar (ex: se o valor não for um número).
         return valor
 
-# Converte um valor string para float, tratando separadores decimais brasileiros (vírgula para ponto).
-# Também ajusta 'Valor Unit' se a unidade for 'KG' para refletir um custo por unidade.
+# Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
+# Ajusta 'Valor Unit' se a unidade for 'KG' para refletir o custo por unidade (R$/kg).
 def converter_valor(valor, unidade, is_valor_unitario=False):
+    valor_float = 0.0 # Valor padrão em caso de falha na conversão
+    
+    # Tenta converter o valor diretamente para float.
+    # Isso funciona se o valor já é um número (int/float) ou uma string em formato de ponto decimal (ex: "14.90").
     try:
-        # Tenta converter diretamente para float.
-        # Isso funcionará se o valor já estiver em formato de ponto decimal (e.g., de outras fontes ou se o gspread já o interpretar como float/int).
         valor_float = float(valor)
     except (ValueError, TypeError):
-        # Se não for um float padrão (ex: contém vírgulas ou pontos de milhar),
-        # assume que é uma string no formato brasileiro.
+        # Se a conversão direta falhar, assume que é uma string que precisa ser tratada.
         valor_str = str(valor).strip()
-        # Remove todos os pontos, que são separadores de milhar no Brasil.
+        
+        # Primeiro, remove os pontos que funcionam como separadores de milhar no Brasil (ex: "1.234,56" -> "1234,56").
+        # Isso é importante para que a vírgula decimal seja o único separador restante.
         valor_str = valor_str.replace(".", "")
-        # Substitui a vírgula decimal pelo ponto decimal, que é o padrão para float em Python.
+        
+        # Em seguida, substitui a vírgula decimal por ponto decimal (ex: "1234,56" -> "1234.56").
+        # O Python e Pandas esperam o ponto como separador decimal para floats.
         valor_str = valor_str.replace(",", ".")
+        
         try:
             # Tenta converter para float novamente após as substituições.
             valor_float = float(valor_str)
         except (ValueError, TypeError):
-            # Se ainda assim não conseguir converter (ex: valor completamente inválido),
-            # imprime um erro no console (para depuração) e retorna 0.0.
-            # No Streamlit, esse erro aparecerá na interface se não for suprimido.
+            # Se ainda assim não conseguir converter (ex: a string ficou inválida após as substituições),
+            # exibe um erro no Streamlit para depuração e define o valor como 0.0.
             st.error(f"Erro grave ao converter o valor '{valor}' para número. Verifique o formato na planilha. Valor definido para 0.0.")
-            return 0.0
-            
+            valor_float = 0.0 # Garante que o valor padrão seja retornado
+
     # Lógica de ajuste para valor unitário em KG.
-    # Esta lógica assume que 'Valor Unit' para KG pode ter sido inserido em centavos/kg
-    # e que precisa ser dividido por 100 para representar R$/kg.
-    # Ajuste esta divisão se a sua entrada de dados for diferente.
+    # Se 'is_valor_unitario' for True e a 'unidade' for 'KG', divide o valor por 100.
+    # Isso é feito para converter valores que podem estar em centavos/kg (ex: 1490 para 14,90 R$/kg)
+    # para a representação correta em Reais.
     if is_valor_unitario and unidade == 'KG':
         return valor_float / 100
     return valor_float
@@ -229,6 +234,11 @@ elif menu == "📦 Estoque":
             use_container_width=True # Faz o DataFrame expandir para a largura do contêiner.
         )
         
+        # Calcula e exibe o valor total de todos os itens em estoque.
+        valor_total_estoque = df_estoque['Valor Total'].sum()
+        st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
+    else:
+        st.warning("Nenhum item em estoque encontrado.")
         # Calcula e exibe o valor total de todos os itens em estoque.
         valor_total_estoque = df_estoque['Valor Total'].sum()
         st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
