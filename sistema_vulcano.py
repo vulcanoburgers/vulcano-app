@@ -15,7 +15,7 @@ st.set_page_config(page_title="Vulcano App", layout="wide")
 def conectar_google_sheets():
     try:
         # Define o escopo para o acesso à API do Google Sheets.
-        scope = ["https://www.googleapis.com/auth/spreadsheets"]
+        scope = ["https://www.googleapis.com/h/spreadsheets"]
         # Carrega as credenciais a partir dos segredos do Streamlit.
         # As credenciais estão no nível raiz de 'st.secrets'.
         creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
@@ -50,44 +50,38 @@ def formatar_br(valor, is_quantidade=False):
         return valor
 
 # Converte um valor para float, tratando formatos numéricos variados, especialmente o brasileiro.
-# Ajusta 'Valor Unit' se a unidade for 'KG' para refletir o custo por unidade (R$/kg).
+# Ajusta 'Valor Unit' se a unidade for 'KG' ou 'UN' para refletir o custo por unidade (R$/kg ou R$/un).
 def converter_valor(valor, unidade, is_valor_unitario=False):
     valor_float = 0.0 # Valor padrão em caso de falha na conversão
     
     # FORÇA a conversão para string para garantir que os métodos .replace() possam ser usados.
-    # Isso é crucial para tratar valores que podem vir como inteiros de gspread, mas que na planilha são decimais.
     valor_str_processed = str(valor).strip()
 
     # Remove pontos (que são separadores de milhar no Brasil)
-    # Ex: "1.234,56" se torna "1234,56"
     valor_str_processed = valor_str_processed.replace(".", "")
     
     # Substitui a vírgula (separador decimal no Brasil) por ponto (separador decimal em Python)
-    # Ex: "1234,56" se torna "1234.56"
     valor_str_processed = valor_str_processed.replace(",", ".")
 
     try:
         # Tenta converter a string processada para float.
         valor_float = float(valor_str_processed)
     except (ValueError, TypeError):
-        # Se a conversão falhar (ex: string não numérica ou vazia), exibe um erro e usa 0.0.
         st.error(f"Erro grave ao converter o valor '{valor}' (tipo original: {type(valor)}, processado: '{valor_str_processed}') para número. Verifique o formato na planilha. Valor definido para 0.0.")
-        valor_float = 0.0 # Garante que o valor padrão seja retornado
+        valor_float = 0.0 
 
-    # --- LINHAS DE DEPURACAO ATIVAS ---
-    # Ativa as mensagens de depuração especificamente para unidades 'UN'.
-    if unidade == 'UN':
-        st.write(f"DEBUG (UN): Original: '{valor}' (Tipo: {type(valor)}), Processado String: '{valor_str_processed}', Float Convertido: {valor_float}")
+    # --- LINHAS DE DEPURACAO ATIVAS (comentadas após depuração) ---
+    # st.write(f"DEBUG: Original: '{valor}' (Tipo: {type(valor)}), Processado String: '{valor_str_processed}', Float Convertido: {valor_float}, Unidade: {unidade}")
     # --- FIM LINHAS DE DEPURACAO ATIVAS ---
 
-    # Lógica de ajuste para valor unitário em KG.
-    # Se 'is_valor_unitario' for True e a 'unidade' for 'KG', divide o valor por 100.
-    # Isso é feito para converter valores que podem estar em centavos/kg (ex: 1490 para 14,90 R$/kg)
+    # Lógica de ajuste para valor unitário.
+    # Se 'is_valor_unitario' for True e a 'unidade' for 'KG' ou 'UN', divide o valor por 100.
+    # Isso é feito para converter valores que podem estar em centavos/kg ou centavos/unidade (ex: 1490 para 14,90 R$)
     # para a representação correta em Reais.
-    if is_valor_unitario and unidade == 'KG':
+    if is_valor_unitario and (unidade == 'KG' or unidade == 'UN'):
         return valor_float / 100
     
-    # Para outras unidades (como 'UN'), retorna o valor float diretamente.
+    # Para outras unidades ou valores que não são unitários, retorna o valor float diretamente.
     return valor_float
 
 # --- Definição do Menu Principal ---
@@ -242,4 +236,3 @@ elif menu == "📦 Estoque":
         st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
     else:
         st.warning("Nenhum item em estoque encontrado.")
-
