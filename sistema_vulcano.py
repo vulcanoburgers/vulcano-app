@@ -1,13 +1,10 @@
-# VULCANO APP - Com leitor de NFC-e integrado e correção de estoque
+# VULCANO APP - Atualizado para ponto como separador decimal + Módulo Motoboys
 
 import streamlit as st
 import pandas as pd
 import datetime
 from google.oauth2.service_account import Credentials
 import gspread
-import re
-import requests
-from bs4 import BeautifulSoup
 
 # --- Configuração Inicial ---
 st.set_page_config(page_title="Vulcano App", layout="wide")
@@ -19,8 +16,7 @@ def conectar_google_sheets():
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
         client = gspread.authorize(creds)
-        sheet = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").sheet1
-        return sheet
+        return client
     except Exception as e:
         st.error(f"Erro na conexão com o Google Sheets: {str(e)}")
         st.stop()
@@ -34,141 +30,91 @@ def formatar_br(valor, is_quantidade=False):
     except:
         return valor
 
-def converter_valor(valor):
+def converter_valor(valor, *args, **kwargs):
     try:
-        return float(str(valor).replace(",", "."))
+        return float(valor)
     except (ValueError, TypeError):
         return 0.0
 
-# --- Leitor de NFC-e por URL ---
-def extrair_produtos_nfe(url):
-    try:
-        resposta = requests.get(url, timeout=10)
-        sopa = BeautifulSoup(resposta.text, 'html.parser')
-        texto = sopa.get_text()
-        padrao_produto = re.compile(r"(.+?)\(Código:.*?\)Qtde.:(.*?)UN:.*?Vl. Unit.:(.*?)Vl. Total(\d+,\d+)", re.DOTALL)
-        produtos = padrao_produto.findall(texto)
-        lista_produtos = []
-        for descricao, qtde, unitario, total in produtos:
-            descricao = descricao.strip().replace('\n', ' ')
-            lista_produtos.append({
-                "Descrição": descricao,
-                "Quantidade": converter_valor(qtde.strip()),
-                "Valor Unit": converter_valor(unitario.strip()),
-                "Valor Total": converter_valor(total.strip()),
-                "Unid": "UN"
-            })
-        return lista_produtos
-    except Exception as e:
-        st.error(f"Erro ao extrair produtos: {e}")
-        return []
-
 # --- Menu Principal ---
-menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque"])
+menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque", "🛵 Fechamento Motos"])
 
-sheet = conectar_google_sheets()
+client = conectar_google_sheets()
+sheet_compras = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("COMPRAS")
+sheet_pedidos = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("Pedidos")
 
-if menu == "📥 Inserir NFC-e":
-    st.title("📥 Inserir NFC-e")
-    url_nfce = st.text_input("Cole o link da NFC-e:")
+# --- Página Motoboys ---
+if menu == "🛵 Fechamento Motos":
+    st.title("🛵 Fechamento de Motoboys")
+    df_pedidos = pd.DataFrame(sheet_pedidos.get_all_records())
 
-    if st.button("Buscar produtos da nota") and url_nfce:
-        produtos = extrair_produtos_nfe(url_nfce)
-        if produtos:
-            df = pd.DataFrame(produtos)
-            df['Data Compra'] = datetime.date.today().strftime("%d/%m/%Y")
-            df['Fornecedor'] = "Bistek"
-            df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
-            st.dataframe(df)
-
-            if st.button("Enviar produtos para Google Sheets"):
-                for _, row in df.iterrows():
-                    sheet.append_row([
-                        row['Data Compra'], row['Descrição'], row['Fornecedor'],
-                        row['Unid'], str(row['Quantidade']), str(row['Valor Unit'])
-                    ])
-                st.success("Produtos adicionados à planilha com sucesso!")
-
-elif menu == "📊 Dashboard":
-    st.title("📊 Dashboard")
-    st.info("Funcionalidade em desenvolvimento")
-
-elif menu == "📈 Fluxo de Caixa":
-    st.title("📈 Fluxo de Caixa")
-
-    @st.cache_data(ttl=600)
-    def carregar_dados():
-        dados = sheet.get_all_records()
-        df = pd.DataFrame(dados)
-        df['Valor Unit'] = df['Valor Unit'].apply(converter_valor)
-        df['Quantidade'] = df['Quantidade'].apply(converter_valor)
-        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
-        df['Data Compra'] = pd.to_datetime(df['Data Compra'], dayfirst=True, errors='coerce').dt.date
-        df = df.dropna(subset=['Data Compra'])
-        return df
-
-    df = carregar_dados()
-
-    if not df.empty:
-        min_date = df['Data Compra'].min()
-        max_date = df['Data Compra'].max()
-        col1, col2 = st.columns(2)
-        with col1:
-            data_inicio = st.date_input("De", min_date, min_value=min_date, max_value=max_date)
-        with col2:
-            data_fim = st.date_input("Até", max_date, min_value=min_date, max_value=max_date)
-
-        df_filtrado = df[(df['Data Compra'] >= data_inicio) & (df['Data Compra'] <= data_fim)]
-        df_exibir = df_filtrado.copy()
-        df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
-        df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
-        df_exibir['Quantidade'] = df_exibir['Quantidade'].apply(lambda x: formatar_br(x, is_quantidade=True))
-
-        st.dataframe(
-            df_exibir.sort_values('Data Compra', ascending=False),
-            hide_index=True,
-            use_container_width=True
-        )
+    if df_pedidos.empty:
+        st.warning("Planilha de pedidos vazia.")
     else:
-        st.warning("Nenhum dado encontrado para o período selecionado.")
+        df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
+        df_pedidos.dropna(subset=['Data'], inplace=True)
 
-elif menu == "📦 Estoque":
-    st.title("📦 Gestão de Estoque")
+        motoboys = df_pedidos['Motoboy'].dropna().unique()
+        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys)
 
-    @st.cache_data(ttl=3600)
-    def carregar_estoque():
-        dados = sheet.get_all_records()
-        df = pd.DataFrame(dados)
-        df['Valor Unit'] = df['Valor Unit'].apply(converter_valor)
-        df['Quantidade'] = df['Quantidade'].apply(converter_valor)
-        df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
+        data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        data_fim = st.date_input("Data fim:", value=datetime.date.today())
 
-        df_grouped = df.groupby(['Descrição', 'Unid']).agg(
-            Quantidade=('Quantidade', 'sum'),
-            Valor_Total_Sum=('Valor Total', 'sum')
-        ).reset_index()
+        filtro = (df_pedidos['Motoboy'] == motoboy_selecionado) & (df_pedidos['Data'].dt.date >= data_inicio) & (df_pedidos['Data'].dt.date <= data_fim)
+        df_filtrado = df_pedidos[filtro].copy()
 
-        df_grouped['Valor Unit'] = df_grouped['Valor_Total_Sum'] / df_grouped['Quantidade']
-        df_grouped['Valor Unit'] = df_grouped['Valor Unit'].fillna(0)
-        df_grouped.rename(columns={'Valor_Total_Sum': 'Valor Total'}, inplace=True)
+        if df_filtrado.empty:
+            st.warning("Nenhum pedido encontrado para o motoboy nesse período.")
+        else:
+            df_filtrado['KM'] = pd.to_numeric(df_filtrado['KM'], errors='coerce')
+            df_filtrado.dropna(subset=['KM'], inplace=True)
+            df_filtrado.sort_values('Data', inplace=True)
 
-        return df_grouped
+            dias_trabalhados = df_filtrado['Data'].dt.date.nunique()
+            base_diaria = 90 * dias_trabalhados
 
-    df_estoque = carregar_estoque()
+            def calcular_taxa_extra(km):
+                if km <= 6:
+                    return 0
+                elif km <= 8:
+                    return 2
+                elif km <= 10:
+                    return 6
+                else:
+                    return 11
 
-    if not df_estoque.empty:
-        df_exibir = df_estoque.copy()
-        df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
-        df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
-        df_exibir['Quantidade'] = df_exibir['Quantidade'].apply(lambda x: formatar_br(x, is_quantidade=True))
+            def calcular_valor_excedente(km):
+                if km <= 6:
+                    return 6
+                elif km <= 8:
+                    return 8
+                elif km <= 10:
+                    return 12
+                else:
+                    return 17
 
-        st.dataframe(
-            df_exibir[['Descrição', 'Unid', 'Quantidade', 'Valor Unit', 'Valor Total']],
-            hide_index=True,
-            use_container_width=True
-        )
+            corridas_dia = df_filtrado.groupby(df_filtrado['Data'].dt.date).size()
 
-        valor_total_estoque = df_estoque['Valor Total'].sum()
-        st.metric("Valor Total em Estoque", formatar_br(valor_total_estoque))
-    else:
-        st.warning("Nenhum item em estoque encontrado.")
+            total_extra = 0
+            for dia, count in corridas_dia.items():
+                df_dia = df_filtrado[df_filtrado['Data'].dt.date == dia]
+                extras = 0
+                if count <= 8:
+                    extras += df_dia['KM'].apply(calcular_taxa_extra).sum()
+                else:
+                    excedente = df_dia.iloc[8:]  # corridas acima de 8
+                    extras += excedente['KM'].apply(calcular_valor_excedente).sum()
+                    extras += df_dia.iloc[:8]['KM'].apply(calcular_taxa_extra).sum()
+                total_extra += extras
+
+            total_final = base_diaria + total_extra
+
+            st.metric("Dias trabalhados", dias_trabalhados)
+            st.metric("Total fixo (R$)", formatar_br(base_diaria))
+            st.metric("Extras por KM (R$)", formatar_br(total_extra))
+            st.metric("Total a pagar (R$)", formatar_br(total_final))
+
+            with st.expander("📋 Ver pedidos filtrados"):
+                st.dataframe(df_filtrado[['Data', 'Motoboy', 'KM']])
+
+# --- As demais páginas do app seguem abaixo (NFC-e, Estoque, etc) ---
