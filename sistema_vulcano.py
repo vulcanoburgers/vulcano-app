@@ -54,7 +54,7 @@ if menu == "🛵 Fechamento Motos":
         df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
         df_pedidos.dropna(subset=['Data'], inplace=True)
 
-        motoboys_fixos = ["Lucas", "Rafael", "Felipe", "Gabriel"]
+        motoboys_fixos = ["Everson", "Marlon", "Adrian", "Vulcano"]
         motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_fixos)
 
         data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
