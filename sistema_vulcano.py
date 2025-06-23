@@ -54,8 +54,8 @@ if menu == "🛵 Fechamento Motos":
         df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
         df_pedidos.dropna(subset=['Data'], inplace=True)
 
-        motoboys_fixos = ["Everson", "Marlon", "Adrian", "Vulcano"]
-        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_fixos)
+        motoboys_unicos = sorted(df_pedidos['Motoboy'].dropna().unique())
+        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_unicos)
 
         data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
         data_fim = st.date_input("Data fim:", value=datetime.date.today())
@@ -121,5 +121,3 @@ if menu == "🛵 Fechamento Motos":
 
                 with st.expander("📋 Ver pedidos filtrados"):
                     st.dataframe(df_filtrado[['Data', 'Motoboy', 'KM']])
-
-# --- Outras páginas (Inserir NFC-e, Dashboard, etc) podem seguir abaixo normalmente.
