@@ -41,7 +41,7 @@ menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 F
 
 client = conectar_google_sheets()
 sheet_compras = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("COMPRAS")
-sheet_pedidos = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("PEDIDOS")
+sheet_pedidos = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("Pedidos")
 
 # --- Página Motoboys ---
 if menu == "🛵 Fechamento Motos":
@@ -54,18 +54,18 @@ if menu == "🛵 Fechamento Motos":
         df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
         df_pedidos.dropna(subset=['Data'], inplace=True)
 
-if 'Motoboy' not in df_pedidos.columns:
-    st.error("Coluna 'Motoboy' não encontrada na aba 'Pedidos'. Verifique o nome exato da coluna.")
-    st.dataframe(df_pedidos)  # Mostra a planilha pra debug
-    st.stop()
+        if 'Motoboy' not in df_pedidos.columns:
+            st.error("Coluna 'Motoboy' não encontrada na aba 'Pedidos'. Verifique o nome exato da coluna.")
+            st.dataframe(df_pedidos)
+            st.stop()
 
-motoboys = df_pedidos['Motoboy'].dropna().unique()
-if len(motoboys) == 0:
-    st.warning("Nenhum motoboy encontrado na planilha. Verifique se há dados preenchidos na coluna 'Motoboy'.")
-    st.dataframe(df_pedidos)
-    st.stop()
+        motoboys = df_pedidos['Motoboy'].dropna().unique()
+        if len(motoboys) == 0:
+            st.warning("Nenhum motoboy encontrado na planilha. Verifique se há dados preenchidos na coluna 'Motoboy'.")
+            st.dataframe(df_pedidos)
+            st.stop()
 
-motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys)
+        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys)
 
         data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
         data_fim = st.date_input("Data fim:", value=datetime.date.today())
