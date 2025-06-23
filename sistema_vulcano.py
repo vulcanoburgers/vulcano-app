@@ -1,10 +1,13 @@
-# VULCANO APP - Atualizado para ponto como separador decimal
+# VULCANO APP - Com leitor de NFC-e integrado e correção de estoque
 
 import streamlit as st
 import pandas as pd
 import datetime
 from google.oauth2.service_account import Credentials
 import gspread
+import re
+import requests
+from bs4 import BeautifulSoup
 
 # --- Configuração Inicial ---
 st.set_page_config(page_title="Vulcano App", layout="wide")
@@ -31,28 +34,65 @@ def formatar_br(valor, is_quantidade=False):
     except:
         return valor
 
-def converter_valor(valor, *args, **kwargs):
+def converter_valor(valor):
     try:
-        return float(valor)
+        return float(str(valor).replace(",", "."))
     except (ValueError, TypeError):
         return 0.0
+
+# --- Leitor de NFC-e por URL ---
+def extrair_produtos_nfe(url):
+    try:
+        resposta = requests.get(url, timeout=10)
+        sopa = BeautifulSoup(resposta.text, 'html.parser')
+        texto = sopa.get_text()
+        padrao_produto = re.compile(r"(.+?)\(Código:.*?\)Qtde.:(.*?)UN:.*?Vl. Unit.:(.*?)Vl. Total(\d+,\d+)", re.DOTALL)
+        produtos = padrao_produto.findall(texto)
+        lista_produtos = []
+        for descricao, qtde, unitario, total in produtos:
+            descricao = descricao.strip().replace('\n', ' ')
+            lista_produtos.append({
+                "Descrição": descricao,
+                "Quantidade": converter_valor(qtde.strip()),
+                "Valor Unit": converter_valor(unitario.strip()),
+                "Valor Total": converter_valor(total.strip()),
+                "Unid": "UN"
+            })
+        return lista_produtos
+    except Exception as e:
+        st.error(f"Erro ao extrair produtos: {e}")
+        return []
 
 # --- Menu Principal ---
 menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque"])
 
 sheet = conectar_google_sheets()
 
-# Página: Inserir NFC-e
 if menu == "📥 Inserir NFC-e":
     st.title("📥 Inserir NFC-e")
-    st.info("Funcionalidade em desenvolvimento")
+    url_nfce = st.text_input("Cole o link da NFC-e:")
 
-# Página: Dashboard
+    if st.button("Buscar produtos da nota") and url_nfce:
+        produtos = extrair_produtos_nfe(url_nfce)
+        if produtos:
+            df = pd.DataFrame(produtos)
+            df['Data Compra'] = datetime.date.today().strftime("%d/%m/%Y")
+            df['Fornecedor'] = "Bistek"
+            df['Valor Total'] = df['Valor Unit'] * df['Quantidade']
+            st.dataframe(df)
+
+            if st.button("Enviar produtos para Google Sheets"):
+                for _, row in df.iterrows():
+                    sheet.append_row([
+                        row['Data Compra'], row['Descrição'], row['Fornecedor'],
+                        row['Unid'], str(row['Quantidade']), str(row['Valor Unit'])
+                    ])
+                st.success("Produtos adicionados à planilha com sucesso!")
+
 elif menu == "📊 Dashboard":
     st.title("📊 Dashboard")
     st.info("Funcionalidade em desenvolvimento")
 
-# Página: Fluxo de Caixa
 elif menu == "📈 Fluxo de Caixa":
     st.title("📈 Fluxo de Caixa")
 
@@ -72,7 +112,6 @@ elif menu == "📈 Fluxo de Caixa":
     if not df.empty:
         min_date = df['Data Compra'].min()
         max_date = df['Data Compra'].max()
-
         col1, col2 = st.columns(2)
         with col1:
             data_inicio = st.date_input("De", min_date, min_value=min_date, max_value=max_date)
@@ -80,7 +119,6 @@ elif menu == "📈 Fluxo de Caixa":
             data_fim = st.date_input("Até", max_date, min_value=min_date, max_value=max_date)
 
         df_filtrado = df[(df['Data Compra'] >= data_inicio) & (df['Data Compra'] <= data_fim)]
-
         df_exibir = df_filtrado.copy()
         df_exibir['Valor Unit'] = df_exibir['Valor Unit'].apply(formatar_br)
         df_exibir['Valor Total'] = df_exibir['Valor Total'].apply(formatar_br)
@@ -88,21 +126,12 @@ elif menu == "📈 Fluxo de Caixa":
 
         st.dataframe(
             df_exibir.sort_values('Data Compra', ascending=False),
-            column_config={
-                "Data Compra": st.column_config.DateColumn("Data da Compra", format="DD/MM/YYYY"),
-                "Unid": st.column_config.TextColumn("Unidade"),
-                "Descrição": st.column_config.TextColumn("Descrição do Item"),
-                "Fornecedor": st.column_config.TextColumn("Fornecedor"),
-                "Valor Unit": st.column_config.TextColumn("Valor Unitário"),
-                "Valor Total": st.column_config.TextColumn("Valor Total")
-            },
             hide_index=True,
             use_container_width=True
         )
     else:
         st.warning("Nenhum dado encontrado para o período selecionado.")
 
-# Página: Gestão de Estoque
 elif menu == "📦 Estoque":
     st.title("📦 Gestão de Estoque")
 
@@ -135,13 +164,6 @@ elif menu == "📦 Estoque":
 
         st.dataframe(
             df_exibir[['Descrição', 'Unid', 'Quantidade', 'Valor Unit', 'Valor Total']],
-            column_config={
-                "Unid": st.column_config.TextColumn("Unidade"),
-                "Quantidade": st.column_config.NumberColumn("Qtd", format="%.3f"),
-                "Descrição": st.column_config.TextColumn("Descrição do Item"),
-                "Valor Unit": st.column_config.TextColumn("Valor Unitário Médio"),
-                "Valor Total": st.column_config.TextColumn("Valor Total do Estoque")
-            },
             hide_index=True,
             use_container_width=True
         )
