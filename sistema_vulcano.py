@@ -54,15 +54,15 @@ if menu == "🛵 Fechamento Motos":
         df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
         df_pedidos.dropna(subset=['Data'], inplace=True)
 
-        motoboys_unicos = sorted(df_pedidos['Motoboy'].dropna().unique())
-        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_unicos)
+        motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_lista)
 
         data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
         data_fim = st.date_input("Data fim:", value=datetime.date.today())
 
         if st.button("🔍 Buscar Fechamento"):
             filtro = (
-                (df_pedidos['Motoboy'] == motoboy_selecionado) &
+                (df_pedidos['Motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
                 (df_pedidos['Data'].dt.date >= data_inicio) &
                 (df_pedidos['Data'].dt.date <= data_fim)
             )
