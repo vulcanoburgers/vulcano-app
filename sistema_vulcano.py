@@ -71,8 +71,8 @@ if menu == "🛵 Fechamento Motos":
             if df_filtrado.empty:
                 st.warning("Nenhum pedido encontrado para o motoboy nesse período.")
             else:
-                df_filtrado['KM'] = pd.to_numeric(df_filtrado['KM'], errors='coerce')
-                df_filtrado.dropna(subset=['KM'], inplace=True)
+                df_filtrado['Distancia'] = pd.to_numeric(df_filtrado['Distancia'], errors='coerce')
+                df_filtrado.dropna(subset=['Distancia'], inplace=True)
                 df_filtrado.sort_values('Data', inplace=True)
 
                 dias_trabalhados = df_filtrado['Data'].dt.date.nunique()
@@ -105,11 +105,11 @@ if menu == "🛵 Fechamento Motos":
                     df_dia = df_filtrado[df_filtrado['Data'].dt.date == dia]
                     extras = 0
                     if count <= 8:
-                        extras += df_dia['KM'].apply(calcular_taxa_extra).sum()
+                        extras += df_dia['Distancia'].apply(calcular_taxa_extra).sum()
                     else:
                         excedente = df_dia.iloc[8:]
-                        extras += excedente['KM'].apply(calcular_valor_excedente).sum()
-                        extras += df_dia.iloc[:8]['KM'].apply(calcular_taxa_extra).sum()
+                        extras += excedente['Distancia'].apply(calcular_valor_excedente).sum()
+                        extras += df_dia.iloc[:8]['Distancia'].apply(calcular_taxa_extra).sum()
                     total_extra += extras
 
                 total_final = base_diaria + total_extra
