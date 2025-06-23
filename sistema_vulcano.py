@@ -78,22 +78,22 @@ if menu == "🛵 Fechamento Motos":
                 dias_trabalhados = df_filtrado['Data'].dt.date.nunique()
                 base_diaria = 90 * dias_trabalhados
 
-                def calcular_taxa_extra(km):
-                    if km <= 6:
+                def calcular_taxa_extra(Distancia):
+                    if Distancia <= 6:
                         return 0
-                    elif km <= 8:
+                    elif Distancia <= 8:
                         return 2
-                    elif km <= 10:
+                    elif Distancia <= 10:
                         return 6
                     else:
                         return 11
 
-                def calcular_valor_excedente(km):
-                    if km <= 6:
+                def calcular_valor_excedente(Distancia):
+                    if Distancia <= 6:
                         return 6
-                    elif km <= 8:
+                    elif Distancia <= 8:
                         return 8
-                    elif km <= 10:
+                    elif Distancia <= 10:
                         return 12
                     else:
                         return 17
@@ -120,4 +120,4 @@ if menu == "🛵 Fechamento Motos":
                 st.metric("Total a pagar (R$)", formatar_br(total_final))
 
                 with st.expander("📋 Ver pedidos filtrados"):
-                    st.dataframe(df_filtrado[['Data', 'Motoboy', 'KM']])
+                    st.dataframe(df_filtrado[['Data', 'Motoboy', 'Distancia']])
