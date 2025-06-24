@@ -1,4 +1,5 @@
-# VULCANO APP - VERSÃO DEFINITIVA PARA MOTOBOYS
+# VULCANO APP - Atualizado para ponto como separador decimal + Módulo Motoboys
+
 import streamlit as st
 import pandas as pd
 import datetime
@@ -6,130 +7,117 @@ from google.oauth2.service_account import Credentials
 import gspread
 
 # --- Configuração Inicial ---
-st.set_page_config(page_title="Vulcano App - Motoboys", layout="wide")
+st.set_page_config(page_title="Vulcano App", layout="wide")
 
 # --- Conexão Google Sheets ---
 @st.cache_resource(ttl=3600)
 def conectar_google_sheets():
     try:
-        scope = ["https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"]
-        creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+        scope = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(st.secrets, scopes=scope)
         client = gspread.authorize(creds)
         return client
     except Exception as e:
-        st.error(f"Erro na conexão: {str(e)}")
+        st.error(f"Erro na conexão com o Google Sheets: {str(e)}")
         st.stop()
+
+# --- Funções Auxiliares ---
+def formatar_br(valor, is_quantidade=False):
+    try:
+        if is_quantidade:
+            return f"{valor:,.3f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return valor
+
+def converter_valor(valor, *args, **kwargs):
+    try:
+        return float(str(valor).replace(',', '.'))
+    except (ValueError, TypeError):
+        return 0.0
+
+# --- Menu Principal ---
+menu = st.sidebar.radio("Menu", ["📥 Inserir NFC-e", "📊 Dashboard", "📈 Fluxo de Caixa", "📦 Estoque", "🛵 Fechamento Motos"])
+
+client = conectar_google_sheets()
+sheet_compras = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("COMPRAS")
+sheet_pedidos = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("PEDIDOS")
 
 # --- Página Motoboys ---
-def pagina_motoboys():
+if menu == "🛵 Fechamento Motos":
     st.title("🛵 Fechamento de Motoboys")
-    
-    try:
-        # Conexão com a planilha
-        client = conectar_google_sheets()
-        planilha = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U")
-        sheet_pedidos = planilha.worksheet("PEDIDOS")
-        
-        # Debug: Verificar abas disponíveis
-        st.sidebar.write("Abas disponíveis:")
-        for aba in planilha.worksheets():
-            st.sidebar.write(f"- {aba.title}")
-        
-        # Carregar dados
-        dados = sheet_pedidos.get_all_records()
-        df = pd.DataFrame(dados)
-        
-        if df.empty:
-            st.warning("Planilha de pedidos vazia!")
-            return
-            
-        # Pré-processamento CRUCIAL
-        df['Motoboy'] = df['Motoboy'].astype(str).str.strip().str.title()
-        df['Data'] = pd.to_datetime(df['Data'], dayfirst=True, errors='coerce')
-        
-        # Debug: Mostrar amostra dos dados
-        with st.expander("🔍 Ver dados brutos (amostra)"):
-            st.write(df.head(3))
-            st.write(f"Motoboys encontrados: {df['Motoboy'].unique()}")
-            st.write(f"Range de datas: {df['Data'].min()} até {df['Data'].max()}")
-        
-        # Interface
-        motoboys_disponiveis = sorted(df['Motoboy'].dropna().unique())
-        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_disponiveis)
-        
-        # Datas com fallback seguro
-        try:
-            data_inicio = st.date_input("Data início:", value=datetime.date(2025, 6, 1))
-            data_fim = st.date_input("Data fim:", value=datetime.date(2025, 6, 8))
-        except:
-            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
-            data_fim = st.date_input("Data fim:", value=datetime.date.today())
-        
-        if st.button("🔍 Buscar Fechamento", type="primary"):
-            # Filtro robusto
-            mask = (
-                (df['Motoboy'].str.lower() == motoboy_selecionado.lower()) &
-                (df['Data'].notna()) &
-                (df['Data'].dt.date >= data_inicio) & 
-                (df['Data'].dt.date <= data_fim)
+    df_pedidos = pd.DataFrame(sheet_pedidos.get_all_records())
+
+    if df_pedidos.empty:
+        st.warning("Planilha de pedidos vazia.")
+    else:
+        df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
+        df_pedidos.dropna(subset=['Data'], inplace=True)
+
+        motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+        motoboy_selecionado = st.selectbox("Selecione o motoboy:", motoboys_lista)
+
+        data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        data_fim = st.date_input("Data fim:", value=datetime.date.today())
+
+        if st.button("🔍 Buscar Fechamento"):
+            filtro = (
+                (df_pedidos['Motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                (df_pedidos['Data'].dt.date >= data_inicio) &
+                (df_pedidos['Data'].dt.date <= data_fim)
             )
-            
-            df_filtrado = df[mask].copy()
-            
+            df_filtrado = df_pedidos[filtro].copy()
+
             if df_filtrado.empty:
-                st.error(f"""
-                ⚠️ Nenhum pedido encontrado para:
-                - Motoboy: **{motoboy_selecionado}**
-                - Período: **{data_inicio.strftime('%d/%m/%Y')}** a **{data_fim.strftime('%d/%m/%Y')}**
-                
-                🔍 **Possíveis causas:**
-                1. O nome **"{motoboy_selecionado}"** está diferente na planilha
-                2. As datas estão em formato incorreto na planilha
-                3. Realmente não há pedidos nesse período
-                """)
-                
-                # Sugere ver todos os pedidos do motoboy
-                if st.button("👀 Ver TODOS os pedidos deste motoboy"):
-                    todos_pedidos = df[df['Motoboy'].str.lower() == motoboy_selecionado.lower()]
-                    st.dataframe(
-                        todos_pedidos[['Data', 'Motoboy', 'Distancia']].sort_values('Data'),
-                        column_config={
-                            "Data": st.column_config.DatetimeColumn(format="DD/MM/YYYY"),
-                            "Distancia": "Distância (km)"
-                        }
-                    )
+                st.warning("Nenhum pedido encontrado para o motoboy nesse período.")
             else:
-                # Cálculos do fechamento
+                df_filtrado['Distancia'] = pd.to_numeric(df_filtrado['Distancia'], errors='coerce')
+                df_filtrado.dropna(subset=['Distancia'], inplace=True)
+                df_filtrado.sort_values('Data', inplace=True)
+
                 dias_trabalhados = df_filtrado['Data'].dt.date.nunique()
                 base_diaria = 90 * dias_trabalhados
-                
-                # Cálculo de extras (exemplo)
-                df_filtrado['Distancia'] = pd.to_numeric(df_filtrado['Distancia'], errors='coerce')
-                total_extra = df_filtrado['Distancia'].sum() * 1.5  # Exemplo: R$1,50 por km
-                
-                total_pagar = base_diaria + total_extra
-                
-                # Exibir resultados
-                st.success(f"✅ Fechamento calculado para {motoboy_selecionado}")
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Dias trabalhados", dias_trabalhados)
-                col2.metric("Valor Fixo", f"R$ {base_diaria:,.2f}")
-                col3.metric("Total a Pagar", f"R$ {total_pagar:,.2f}")
-                
-                st.dataframe(
-                    df_filtrado[['Data', 'Motoboy', 'Distancia']].sort_values('Data'),
-                    column_config={
-                        "Data": st.column_config.DatetimeColumn(format="DD/MM/YYYY"),
-                        "Distancia": "Distância (km)"
-                    },
-                    hide_index=True
-                )
-    
-    except Exception as e:
-        st.error(f"ERRO CRÍTICO: {str(e)}")
-        st.stop()
 
-# --- Executar Página ---
-pagina_motoboys()
+                def calcular_taxa_extra(km):
+                    if km <= 6:
+                        return 0
+                    elif km <= 8:
+                        return 2
+                    elif km <= 10:
+                        return 6
+                    else:
+                        return 11
+
+                def calcular_valor_excedente(km):
+                    if km <= 6:
+                        return 6
+                    elif km <= 8:
+                        return 8
+                    elif km <= 10:
+                        return 12
+                    else:
+                        return 17
+
+                corridas_dia = df_filtrado.groupby(df_filtrado['Data'].dt.date).size()
+                total_extra = 0
+
+                for dia, count in corridas_dia.items():
+                    df_dia = df_filtrado[df_filtrado['Data'].dt.date == dia]
+                    extras = 0
+                    if count <= 8:
+                        extras += df_dia['Distancia'].apply(calcular_taxa_extra).sum()
+                    else:
+                        excedente = df_dia.iloc[8:]
+                        extras += excedente['Distancia'].apply(calcular_valor_excedente).sum()
+                        extras += df_dia.iloc[:8]['Distancia'].apply(calcular_taxa_extra).sum()
+                    total_extra += extras
+
+                total_final = base_diaria + total_extra
+
+                st.metric("Dias trabalhados", dias_trabalhados)
+                st.metric("Total fixo (R$)", formatar_br(base_diaria))
+                st.metric("Extras por KM (R$)", formatar_br(total_extra))
+                st.metric("Total a pagar (R$)", formatar_br(total_final))
+
+                with st.expander("📋 Ver pedidos filtrados"):
+                    st.dataframe(df_filtrado[['Data', 'Motoboy', 'KM']])
