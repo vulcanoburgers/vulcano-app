@@ -255,9 +255,77 @@ elif menu == "📦 Estoque":
 # ==============================================
 # PÁGINA: FECHAMENTO MOTOS (JÁ IMPLEMENTADA ANTERIORMENTE)
 # ==============================================
-elif menu == "🛵 Fechamento Motos":
+    elif menu == "🛵 Fechamento Motos":
     st.title("🛵 Fechamento de Motoboys")
     
+    try:
+        sheet_pedidos = get_worksheet(client, "PEDIDOS")
+        # DEBUG: Mostrar os dados brutos
+        st.write("Dados brutos da planilha:", sheet_pedidos.get_all_records()[:3])
+        
+        df_pedidos = pd.DataFrame(sheet_pedidos.get_all_records())
+        
+        if df_pedidos.empty:
+            st.warning("Planilha de pedidos vazia.")
+        else:
+            # PRÉ-PROCESSAMENTO MELHORADO
+            df_pedidos['Data'] = pd.to_datetime(
+                df_pedidos['Data'], 
+                format='%d/%m/%Y',  # Alterar conforme o formato real dos dados
+                errors='coerce'
+            )
+            
+            # DEBUG: Verificar datas convertidas
+            st.write("Datas convertidas:", df_pedidos['Data'].head())
+            
+            df_pedidos['Motoboy'] = df_pedidos['Motoboy'].astype(str).str.strip().str.title()
+            
+            # DEBUG: Verificar motoboys únicos
+            st.write("Motoboys encontrados:", df_pedidos['Motoboy'].unique())
+            
+            # Interface
+            motoboys_disponiveis = sorted(df_pedidos['Motoboy'].dropna().unique())
+            motoboy_selecionado = st.selectbox(
+                "Selecione o motoboy:",
+                motoboys_disponiveis,
+                index=0 if 'Everson' in motoboys_disponiveis else 0
+            )
+            
+            data_inicio = st.date_input("Data início:", value=datetime.date(2025, 6, 8))
+            data_fim = st.date_input("Data fim:", value=datetime.date(2025, 6, 15))
+            
+            if st.button("🔍 Buscar Fechamento"):
+                # Filtro melhorado
+                filtro = (
+                    (df_pedidos['Motoboy'].str.lower() == motoboy_selecionado.lower()) &
+                    (df_pedidos['Data'].dt.date >= data_inicio) &
+                    (df_pedidos['Data'].dt.date <= data_fim)
+                )
+                
+                df_filtrado = df_pedidos[filtro].copy()
+                
+                # DEBUG: Mostrar filtro aplicado
+                st.write("Filtro aplicado:", filtro.sum(), "registros encontrados")
+                
+                if df_filtrado.empty:
+                    st.warning(f"""
+                    Nenhum pedido encontrado para:
+                    - Motoboy: {motoboy_selecionado}
+                    - Período: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}
+                    
+                    Verifique:
+                    1. Se o nome está exatamente igual na planilha
+                    2. Se as datas estão no formato correto
+                    3. Se há registros nesse período
+                    """)
+                    
+                    # Sugerir verificação manual
+                    if st.button("🔍 Ver todos os pedidos do motoboy"):
+                        todos_pedidos = df_pedidos[
+                            df_pedidos['Motoboy'].str.lower() == motoboy_selecionado.lower()
+                        ]
+                        st.dataframe(todos_pedidos)
+                else:
     try:
         sheet_pedidos = get_worksheet(client, "PEDIDOS")
         df_pedidos = pd.DataFrame(sheet_pedidos.get_all_records())
