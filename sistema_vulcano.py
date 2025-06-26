@@ -279,7 +279,7 @@ def extrair_itens_nfce(soup):
         # Análise de valores
         if 'total' in df_pedidos.columns:
             # Limpar e converter valores (formato brasileiro com R$)
-            df_pedidos['total_num'] = df_pedidos['total'].astype(str).str.replace('R
+            df_pedidos['total_num'] = df_pedidos['total'].astype(str).str.replace('R$')
         pedidos_por_dia = df_pedidos.groupby('Data_apenas').size()
         
         if len(pedidos_por_dia) >= 7:
