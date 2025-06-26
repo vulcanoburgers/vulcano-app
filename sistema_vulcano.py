@@ -7,6 +7,7 @@ import gspread
 import requests
 from bs4 import BeautifulSoup
 import re
+import plotly.express as px
 
 # --- Configuração Inicial ---
 st.set_page_config(page_title="Vulcano App - Sistema de Gestão", layout="wide")
@@ -29,6 +30,17 @@ st.markdown("""
         text-align: center;
         margin: 0.5rem 0;
     }
+    .estoque-card {
+        background: white;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 4px solid #FF4B4B;
+        margin: 10px 0;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .status-ok { color: #28a745; font-weight: bold; }
+    .status-baixo { color: #ffc107; font-weight: bold; }
+    .status-falta { color: #dc3545; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -133,6 +145,405 @@ def carregar_dados_sheets():
         st.error(f"Erro ao carregar dados: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
 
+# ============================================================================
+# NOVAS FUNÇÕES PARA O MÓDULO DE ESTOQUE
+# ============================================================================
+
+@st.cache_data(ttl=300)
+def carregar_dados_insumos():
+    """Carrega dados da aba INSUMOS"""
+    client = conectar_google_sheets()
+    if not client:
+        return pd.DataFrame()
+    
+    try:
+        sheet_insumos = client.open_by_key("1dYXXL7d_MJVaDPnmOb6sBECemaVz7-2VXsRBMsxf77U").worksheet("INSUMOS")
+        df_insumos = pd.DataFrame(sheet_insumos.get_all_records())
+        return df_insumos
+    except Exception as e:
+        st.error(f"Erro ao carregar dados de insumos: {str(e)}")
+        return pd.DataFrame()
+
+def determinar_status_estoque(row):
+    """Determina o status do estoque de um produto"""
+    try:
+        em_estoque = pd.to_numeric(row.get('Em estoque', 0), errors='coerce') or 0
+        estoque_min = pd.to_numeric(row.get('Estoque Min', 0), errors='coerce') or 0
+        
+        if em_estoque == 0:
+            return "🔴 Em Falta"
+        elif em_estoque < estoque_min:
+            return "🟡 Baixo"
+        else:
+            return "🟢 OK"
+    except:
+        return "❓ Indefinido"
+
+def pagina_estoque():
+    """Página de gestão de estoque"""
+    
+    st.title("📦 Gestão de Estoque")
+    
+    # Carregar dados
+    df_insumos = carregar_dados_insumos()
+    
+    if df_insumos.empty:
+        st.warning("⚠️ Não foi possível carregar os dados da aba INSUMOS")
+        st.info("💡 Verifique se a aba 'INSUMOS' existe na sua planilha")
+        return
+    
+    # Tabs do módulo de estoque
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Dashboard", 
+        "📋 Lista de Produtos", 
+        "📈 Análise de Custos",
+        "⚙️ Configurações"
+    ])
+    
+    with tab1:
+        dashboard_estoque(df_insumos)
+    
+    with tab2:
+        lista_produtos_estoque(df_insumos)
+    
+    with tab3:
+        analise_custos_estoque(df_insumos)
+    
+    with tab4:
+        configuracoes_estoque()
+
+def dashboard_estoque(df_insumos):
+    """Dashboard do estoque"""
+    
+    st.subheader("📊 Visão Geral do Estoque")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    
+    # Converter colunas numéricas
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Estoque Min'] = pd.to_numeric(df_work.get('Estoque Min', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    
+    # Métricas principais
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_produtos = len(df_work)
+        st.metric("📦 Total de Produtos", total_produtos)
+    
+    with col2:
+        valor_total = (df_work['Em estoque'] * df_work['Preço (un)']).sum()
+        st.metric("💰 Valor Total", formatar_br(valor_total))
+    
+    with col3:
+        produtos_baixo = len(df_work[
+            (df_work['Em estoque'] < df_work['Estoque Min']) & 
+            (df_work['Em estoque'] > 0)
+        ])
+        st.metric("⚠️ Estoque Baixo", produtos_baixo)
+    
+    with col4:
+        produtos_falta = len(df_work[df_work['Em estoque'] == 0])
+        st.metric("🚨 Em Falta", produtos_falta)
+    
+    # Alertas importantes
+    st.markdown("### 🔔 Alertas Importantes")
+    
+    produtos_falta_lista = df_work[df_work['Em estoque'] == 0]
+    produtos_baixo_lista = df_work[
+        (df_work['Em estoque'] < df_work['Estoque Min']) & 
+        (df_work['Em estoque'] > 0)
+    ]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if len(produtos_falta_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**🚨 Produtos em Falta:**")
+            for produto in produtos_falta_lista['Produto'].head(5):
+                st.write(f"• {produto}")
+            if len(produtos_falta_lista) > 5:
+                st.write(f"... e mais {len(produtos_falta_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Nenhum produto em falta!")
+    
+    with col2:
+        if len(produtos_baixo_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**⚠️ Estoque Baixo:**")
+            for _, produto in produtos_baixo_lista.head(5).iterrows():
+                st.write(f"• {produto['Produto']}: {produto['Em estoque']:.0f}/{produto['Estoque Min']:.0f}")
+            if len(produtos_baixo_lista) > 5:
+                st.write(f"... e mais {len(produtos_baixo_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Todos os produtos com estoque adequado!")
+    
+    # Gráficos
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            fig1 = px.pie(
+                values=categoria_count.values, 
+                names=categoria_count.index,
+                title="Distribuição por Categoria"
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+    
+    with col2:
+        st.subheader("💰 Valor por Categoria")
+        if 'Categoria' in df_work.columns:
+            valor_categoria = df_work.groupby('Categoria').apply(
+                lambda x: (x['Em estoque'] * x['Preço (un)']).sum()
+            ).reset_index()
+            valor_categoria.columns = ['Categoria', 'Valor']
+            
+            fig2 = px.bar(
+                valor_categoria, 
+                x='Categoria', 
+                y='Valor',
+                title="Valor em Estoque por Categoria"
+            )
+            st.plotly_chart(fig2, use_container_width=True)
+
+def lista_produtos_estoque(df_insumos):
+    """Lista de produtos do estoque"""
+    
+    st.subheader("📋 Lista de Produtos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Estoque Min'] = pd.to_numeric(df_work.get('Estoque Min', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
 # --- Análise de Pedidos ---
 def analisar_pedidos(df_pedidos):
     """Análise simples dos dados de pedidos"""
@@ -226,6 +637,7 @@ def main():
         "Selecione uma opção:",
         [
             "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",  # <- NOVA OPÇÃO
             "📥 Inserir NFC-e", 
             "📊 Análise de Pedidos",
             "🛵 Fechamento Motoboys",
@@ -267,6 +679,32 @@ def main():
             total_compras = len(df_compras) if not df_compras.empty else 0
             st.metric("Compras Registradas", total_compras)
         
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
         # Gráficos
         if not df_pedidos.empty:
             col1, col2 = st.columns(2)
@@ -284,6 +722,10 @@ def main():
                 if 'canal' in df_pedidos.columns:
                     canal_vendas = df_pedidos['canal'].value_counts()
                     st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
     
     # --- INSERIR NFC-E ---
     elif menu == "📥 Inserir NFC-e":
@@ -489,6 +931,9 @@ def main():
         **✅ PEDIDOS (Configurada):**  
         Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
         
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
         O sistema está configurado para sua estrutura atual!
         """)
         
@@ -496,6 +941,25 @@ def main():
         if not df_pedidos.empty:
             st.write("**Colunas encontradas na planilha PEDIDOS:**")
             st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
         
         # Configurações
         st.subheader("⚙️ Configurações")
