@@ -529,8 +529,28 @@ def entrada_produtos_estoque():
                     coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
                 
                 if st.button("💾 Processar e Salvar"):
+                    # Aplicar normalização de nomes
+                    produtos_normalizados = df_upload[coluna_produto].apply(normalizar_nome_produto)
+                    
                     st.success("✅ Dados processados!")
-                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+                    # Mostrar produtos normalizados
+                    st.subheader("🔗 Produtos Normalizados:")
+                    df_norm = pd.DataFrame({
+                        'Nome Original': df_upload[coluna_produto],
+                        'Nome Normalizado': produtos_normalizados,
+                        'Quantidade': df_upload[coluna_quantidade],
+                        'Preço': df_upload[coluna_preco]
+                    })
+                    
+                    # Destacar produtos que foram alterados
+                    df_norm['Status'] = df_norm.apply(
+                        lambda row: '✅ Normalizado' if row['Nome Original'].lower() != row['Nome Normalizado'].lower() else '📝 Mantido',
+                        axis=1
+                    )
+                    
+                    st.dataframe(df_norm, use_container_width=True)
+                    st.info("💡 Os produtos normalizados serão adicionados ao estoque")
                     
             except Exception as e:
                 st.error(f"❌ Erro ao processar arquivo: {str(e)}")
@@ -602,30 +622,6 @@ def analise_custos_estoque(df_insumos):
     df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(limpar_numero)
     df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
     
-    # Análise por fornecedor
-    if 'Fornecedor' in df_work.columns:
-        st.markdown("### 🏪 Análise por Fornecedor")
-        
-        analise_fornecedor = df_work.groupby('Fornecedor').agg({
-            'Produto': 'count',
-            'Valor Total': 'sum',
-            'Em estoque': 'sum'
-        }).reset_index()
-        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
-        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
-        
-        st.dataframe(
-            analise_fornecedor,
-            column_config={
-                "Fornecedor": "Fornecedor",
-                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
-                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
-                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-    
     # Top produtos mais valiosos
     st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
     top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
@@ -641,6 +637,30 @@ def analise_custos_estoque(df_insumos):
         hide_index=True,
         use_container_width=True
     )
+    
+    # Análise por categoria
+    if 'Categoria' in df_work.columns:
+        st.markdown("### 📊 Análise por Categoria")
+        
+        analise_categoria = df_work.groupby('Categoria').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_categoria.columns = ['Categoria', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_categoria = analise_categoria.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_categoria,
+            column_config={
+                "Categoria": "Categoria",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
     
     # Recomendações
     st.markdown("### 💡 Recomendações")
@@ -660,6 +680,91 @@ def analise_custos_estoque(df_insumos):
     • Revise estoques mínimos dos itens mais caros
     • Considere negociações especiais com fornecedores principais
     """)
+
+# ============================================================================
+# SISTEMA DE ALIAS PARA PRODUTOS
+# ============================================================================
+
+def criar_dicionario_alias():
+    """Dicionário de alias para normalizar nomes de produtos"""
+    return {
+        # Águas
+        'agua com gas': ['agua com gás', 'agua c/ gas', 'agua fonte da pedra com gas', 'agua crystal com gas', 'agua gasosa'],
+        'agua sem gas': ['agua sem gás', 'agua s/ gas', 'agua fonte da pedra sem gas', 'agua crystal sem gas', 'agua natural'],
+        
+        # Refrigerantes
+        'coca cola lata': ['coca cola 350ml', 'coca cola lata 350ml', 'coca-cola lata', 'coca lata'],
+        'coca cola zero lata': ['coca zero 350ml', 'coca zero lata 350ml', 'coca-cola zero lata', 'coca zero'],
+        'fanta laranja lata': ['fanta laranja 350ml', 'fanta laranja lata 350ml', 'fanta laranja'],
+        'fanta uva lata': ['fanta uva 350ml', 'fanta uva lata 350ml', 'fanta uva'],
+        'sprite lata': ['sprite 350ml', 'sprite lata 350ml'],
+        
+        # Cervejas
+        'budweiser 550ml': ['budweiser 600ml', 'budweiser garrafa', 'budweiser long'],
+        'budweiser long neck': ['budweiser 330ml', 'budweiser ln', 'budweiser longneck'],
+        
+        # Insumos básicos
+        'oleo de soja': ['oleo soja', 'óleo de soja', 'óleo soja', 'oleo'],
+        'sal': ['sal refinado', 'sal 1kg', 'sal de cozinha'],
+        'açucar': ['açúcar', 'açucar cristal', 'açúcar cristal', 'açucar refinado'],
+        'arroz': ['arroz branco', 'arroz tipo 1', 'arroz agulhinha'],
+        'feijao': ['feijão', 'feijão preto', 'feijao preto'],
+        
+        # Carnes
+        'file de sobrecoxa': ['filé de sobrecoxa', 'sobrecoxa', 'file sobrecoxa'],
+        'bife de coxao de dentro': ['bife coxão dentro', 'coxão dentro', 'bife coxao'],
+        
+        # Queijos
+        'queijo cheddar fatiado': ['cheddar fatiado', 'queijo cheddar', 'cheddar'],
+        'queijo mussarela fatiado': ['mussarela fatiada', 'queijo mussarela', 'mussarela'],
+        'queijo provolone fatiado': ['provolone fatiado', 'queijo provolone', 'provolone'],
+        
+        # Pães
+        'pao brioche': ['pão brioche', 'brioche', 'pao hamburguer brioche'],
+        'pao tradicional com gergelim': ['pão com gergelim', 'pão gergelim', 'pao gergelim'],
+        'pao australiano': ['pão australiano', 'australiano'],
+        
+        # Molhos e temperos
+        'bisnaga de cheddar': ['cheddar bisnaga', 'molho cheddar', 'cheddar cremoso'],
+        'bisnaga de requeijao': ['requeijão bisnaga', 'molho requeijão', 'requeijão cremoso'],
+        'barbecue': ['molho barbecue', 'bbq', 'molho bbq'],
+        'mostarda rustica': ['mostarda rústica', 'mostarda'],
+        
+        # Vegetais
+        'cebola': ['cebola branca', 'cebola amarela'],
+        'tomate': ['tomate maduro', 'tomate vermelho'],
+        'alface': ['alface americana', 'alface lisa'],
+        'couve': ['couve folha', 'couve manteiga']
+    }
+
+def normalizar_nome_produto(nome_entrada):
+    """Normaliza o nome do produto usando o dicionário de alias"""
+    if not nome_entrada:
+        return nome_entrada
+    
+    nome_lower = str(nome_entrada).lower().strip()
+    alias_dict = criar_dicionario_alias()
+    
+    # Procurar por correspondência exata primeiro
+    for produto_base, aliases in alias_dict.items():
+        if nome_lower == produto_base:
+            return produto_base
+        if nome_lower in aliases:
+            return produto_base
+    
+    # Procurar por correspondência parcial
+    for produto_base, aliases in alias_dict.items():
+        # Verificar se algum alias está contido no nome
+        for alias in aliases:
+            if alias in nome_lower or nome_lower in alias:
+                return produto_base
+        
+        # Verificar se o produto base está contido no nome
+        if produto_base in nome_lower or nome_lower in produto_base:
+            return produto_base
+    
+    # Se não encontrou correspondência, retorna o nome original
+    return nome_entrada
 
 def configuracoes_estoque():
     """Configurações do módulo de estoque"""
@@ -706,6 +811,30 @@ def configuracoes_estoque():
         
         if st.button("💾 Salvar Configurações"):
             st.success("✅ Configurações salvas!")
+    
+    # Sistema de Alias
+    st.markdown("### 🔗 Sistema de Alias de Produtos")
+    
+    st.info("""
+    **Como funciona:**
+    O sistema reconhece automaticamente produtos com nomes similares e os associa ao produto correto no estoque.
+    
+    **Exemplos configurados:**
+    • "Agua com gás - Fonte da Pedra" → "agua com gas"
+    • "Coca Cola 350ml" → "coca cola lata"
+    • "Queijo Cheddar" → "queijo cheddar fatiado"
+    """)
+    
+    # Teste do sistema de alias
+    with st.expander("🧪 Testar Sistema de Alias"):
+        nome_teste = st.text_input("Digite um nome para testar:", placeholder="Ex: Agua com gás - Crystal")
+        
+        if nome_teste:
+            resultado = normalizar_nome_produto(nome_teste)
+            if resultado != nome_teste:
+                st.success(f"✅ **'{nome_teste}'** → **'{resultado}'**")
+            else:
+                st.warning(f"⚠️ **'{nome_teste}'** → Sem correspondência (mantém nome original)")
     
     # Informações da estrutura
     st.markdown("### 📋 Estrutura da Aba INSUMOS")
@@ -988,18 +1117,98 @@ def main():
             df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
             df_temp = df_temp.dropna(subset=['data'])
             
+            # DEBUG: Mostrar informações para diagnóstico
+            st.write("### 🔍 Debug - Informações dos Dados")
+            
+            col_debug1, col_debug2 = st.columns(2)
+            
+            with col_debug1:
+                st.write("**Colunas disponíveis:**")
+                st.write(df_temp.columns.tolist())
+                
+                if 'motoboy' in df_temp.columns:
+                    st.write("**Motoboys únicos encontrados:**")
+                    motoboys_unicos = df_temp['motoboy'].dropna().unique().tolist()
+                    st.write(motoboys_unicos)
+                else:
+                    st.error("❌ Coluna 'motoboy' não encontrada!")
+            
+            with col_debug2:
+                st.write("**Filtros aplicados:**")
+                st.write(f"• Motoboy selecionado: '{motoboy_selecionado}'")
+                st.write(f"• Data início: {data_inicio}")
+                st.write(f"• Data fim: {data_fim}")
+                st.write(f"• Total de registros: {len(df_temp)}")
+            
             # Filtros
             if 'motoboy' in df_temp.columns:
-                filtro = (
-                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                # DEBUG: Mostrar como está comparando
+                st.write("**🔍 Comparação de nomes:**")
+                
+                # Diferentes formas de comparar
+                opcoes_comparacao = []
+                
+                # 1. Exato (case sensitive)
+                mask1 = df_temp['motoboy'] == motoboy_selecionado
+                opcoes_comparacao.append(f"Exato: {mask1.sum()} registros")
+                
+                # 2. Ignorando case
+                mask2 = df_temp['motoboy'].str.lower() == motoboy_selecionado.lower()
+                opcoes_comparacao.append(f"Ignorando case: {mask2.sum()} registros")
+                
+                # 3. Removendo espaços e ignorando case
+                mask3 = df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()
+                opcoes_comparacao.append(f"Sem espaços + case: {mask3.sum()} registros")
+                
+                # 4. Contém o nome
+                mask4 = df_temp['motoboy'].str.contains(motoboy_selecionado, case=False, na=False)
+                opcoes_comparacao.append(f"Contém nome: {mask4.sum()} registros")
+                
+                for opcao in opcoes_comparacao:
+                    st.write(f"• {opcao}")
+                
+                # Usar a melhor máscara
+                if mask3.sum() > 0:
+                    mascara_motoboy = mask3
+                elif mask2.sum() > 0:
+                    mascara_motoboy = mask2
+                elif mask4.sum() > 0:
+                    mascara_motoboy = mask4
+                else:
+                    mascara_motoboy = mask1
+                
+                # Aplicar filtros de data
+                filtro_completo = (
+                    mascara_motoboy &
                     (df_temp['data'].dt.date >= data_inicio) &
                     (df_temp['data'].dt.date <= data_fim)
                 )
-                df_filtrado = df_temp[filtro].copy()
+                
+                df_filtrado = df_temp[filtro_completo].copy()
+                
+                st.write(f"**📊 Resultado final: {len(df_filtrado)} pedidos encontrados**")
                 
                 if df_filtrado.empty:
-                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                    st.warning("⚠️ Nenhum pedido encontrado para os filtros selecionados.")
+                    
+                    # Sugestões
+                    st.markdown("**💡 Sugestões:**")
+                    st.write("• Verifique se o nome do motoboy está correto")
+                    st.write("• Tente ampliar o período de datas")
+                    st.write("• Verifique se há dados para essas datas")
+                    
+                    # Mostrar amostra dos dados para debug
+                    if len(df_temp) > 0:
+                        st.write("**📋 Amostra dos dados (primeiras 5 linhas):**")
+                        colunas_mostrar = ['data', 'motoboy', 'distancia'] if 'distancia' in df_temp.columns else ['data', 'motoboy']
+                        st.dataframe(df_temp[colunas_mostrar].head(5))
+                
                 else:
+                    # Mostrar pedidos encontrados
+                    st.write("**✅ Pedidos encontrados:**")
+                    colunas_mostrar = ['data', 'motoboy', 'distancia'] if 'distancia' in df_filtrado.columns else ['data', 'motoboy']
+                    st.dataframe(df_filtrado[colunas_mostrar])
+                    
                     # Processar distâncias
                     if 'distancia' in df_filtrado.columns:
                         df_filtrado['distancia_num'] = pd.to_numeric(
@@ -1007,6 +1216,10 @@ def main():
                             errors='coerce'
                         )
                         df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        if len(df_filtrado) == 0:
+                            st.error("❌ Nenhum registro com distância válida encontrado")
+                            return
                         
                         # Cálculos
                         dias_trabalhados = df_filtrado['data'].dt.date.nunique()
@@ -1044,8 +1257,23 @@ def main():
                         with col4:
                             st.metric("TOTAL", formatar_br(total_final))
                         
-                        # Detalhes
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("❌ Coluna 'distancia' não encontrada.")
+            else:
+                st.error("❌ Coluna 'motoboy' não encontrada.")
                         col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("❌ Coluna 'distancia' não encontrada.")
+            else:
+                st.error("❌ Coluna 'motoboy' não encontrada.")        col1, col2 = st.columns(2)
                         with col1:
                             st.metric("Base Fixa", formatar_br(total_base))
                         with col2:
