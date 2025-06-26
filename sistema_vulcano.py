@@ -1014,7 +1014,7 @@ def main():
             O sistema já está configurado para funcionar com copy/paste direto do seu ERP!
             """)
             
-            st.markdown("---")nas_disponiveis)
+            st.markdown("---")colunas_disponiveis
                 
                 with col2:
                     col_distancia = st.selectbox("Coluna Distância/KM:", [''] + colunas_disponiveis)
