@@ -835,6 +835,23 @@ def configuracoes_estoque():
                 st.success(f"✅ **'{nome_teste}'** → **'{resultado}'**")
             else:
                 st.warning(f"⚠️ **'{nome_teste}'** → Sem correspondência (mantém nome original)")
+        
+        # Mostrar alguns exemplos
+        st.write("**📝 Teste com exemplos pré-definidos:**")
+        exemplos = [
+            "Agua com gás - Fonte da Pedra",
+            "Coca Cola 350ml",
+            "Queijo Cheddar",
+            "Água Crystal com gás",
+            "Sprite lata 350ml"
+        ]
+        
+        for exemplo in exemplos:
+            resultado_ex = normalizar_nome_produto(exemplo)
+            if resultado_ex != exemplo:
+                st.write(f"• **{exemplo}** → **{resultado_ex}** ✅")
+            else:
+                st.write(f"• **{exemplo}** → Sem correspondência ⚠️")
     
     # Informações da estrutura
     st.markdown("### 📋 Estrutura da Aba INSUMOS")
