@@ -12,3 +12,4 @@ beautifulsoup4
 requests
 pyzbar
 numpy
+plotly>=5.0.0
