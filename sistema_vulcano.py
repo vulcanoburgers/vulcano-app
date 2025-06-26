@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import numpy as np
 from google.oauth2.service_account import Credentials
 import gspread
@@ -346,15 +343,14 @@ def main():
                     vendas_dia = df_pedidos.groupby(df_pedidos['Data'].dt.date).size().reset_index()
                     vendas_dia.columns = ['Data', 'Pedidos']
                     
-                    fig = px.line(vendas_dia, x='Data', y='Pedidos', title="Pedidos por Dia")
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Gráfico simples com Streamlit
+                    st.line_chart(vendas_dia.set_index('Data'))
             
             with col2:
                 st.subheader("🎯 Vendas por Canal")
                 if 'Canal' in df_pedidos.columns:
                     canal_vendas = df_pedidos['Canal'].value_counts()
-                    fig = px.pie(values=canal_vendas.values, names=canal_vendas.index, title="Distribuição por Canal")
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.bar_chart(canal_vendas)
     
     # --- INSERIR NFC-E ---
     elif menu == "📥 Inserir NFC-e":
@@ -793,12 +789,16 @@ def main():
                     st.markdown(f"#### {cor} RESULTADO DO PERÍODO")
                     st.markdown(f"**{formatar_br(resultado)}**")
                     
-                    # Gráfico
-                    fig = go.Figure()
-                    fig.add_trace(go.Bar(name='Receitas', x=['Resultado'], y=[receitas_total], marker_color='green'))
-                    fig.add_trace(go.Bar(name='Despesas', x=['Resultado'], y=[despesas_total], marker_color='red'))
-                    fig.update_layout(title='Receitas vs Despesas', barmode='group')
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Gráfico simples
+                    st.subheader("📊 Receitas vs Despesas")
+                    
+                    # Criar dados para gráfico
+                    dados_grafico = pd.DataFrame({
+                        'Tipo': ['Receitas', 'Despesas'],
+                        'Valor': [receitas_total, despesas_total]
+                    })
+                    
+                    st.bar_chart(dados_grafico.set_index('Tipo'))
                 else:
                     st.info("Nenhum dado encontrado para o período selecionado.")
     
@@ -960,9 +960,10 @@ def main():
                     st.dataframe(df_filtrado[colunas_exibir], use_container_width=True)
                 
                 # Gráfico de corridas por dia
+                st.subheader("📊 Corridas por Dia")
                 df_grafico = pd.DataFrame(detalhes_dias)
-                fig = px.bar(df_grafico, x='Data', y='Corridas', title='Corridas por Dia')
-                st.plotly_chart(fig, use_container_width=True)
+                df_grafico_chart = df_grafico.set_index('Data')['Corridas']
+                st.bar_chart(df_grafico_chart)
     
     # --- CONFIGURAÇÕES ---
     elif menu == "⚙️ Configurações":
