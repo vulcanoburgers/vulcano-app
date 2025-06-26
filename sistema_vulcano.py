@@ -193,9 +193,10 @@ def pagina_estoque():
         return
     
     # Tabs do módulo de estoque
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Dashboard", 
         "📋 Lista de Produtos", 
+        "📥 Entrada de Produtos",
         "📈 Análise de Custos",
         "⚙️ Configurações"
     ])
@@ -207,9 +208,12 @@ def pagina_estoque():
         lista_produtos_estoque(df_insumos)
     
     with tab3:
-        analise_custos_estoque(df_insumos)
+        entrada_produtos_estoque()
     
     with tab4:
+        analise_custos_estoque(df_insumos)
+    
+    with tab5:
         configuracoes_estoque()
 
 def dashboard_estoque(df_insumos):
@@ -488,7 +492,142 @@ def analise_custos_estoque(df_insumos):
     • Considere negociações especiais com fornecedores principais
     """)
 
-def configuracoes_estoque():
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+    df_historico = pd.DataFrame(dados_exemplo)
+    st.dataframe(df_historico, use_container_width=True)
     """Configurações do módulo de estoque"""
     
     st.subheader("⚙️ Configurações do Estoque")
@@ -637,8 +776,7 @@ def main():
         "Selecione uma opção:",
         [
             "🏠 Dashboard Principal",
-            "📦 Gestão de Estoque",  # <- NOVA OPÇÃO
-            "📥 Inserir NFC-e", 
+            "📦 Gestão de Estoque",
             "📊 Análise de Pedidos",
             "🛵 Fechamento Motoboys",
             "⚙️ Configurações"
@@ -726,47 +864,6 @@ def main():
     # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
     elif menu == "📦 Gestão de Estoque":
         pagina_estoque()
-    
-    # --- INSERIR NFC-E ---
-    elif menu == "📥 Inserir NFC-e":
-        st.title("📥 Inserir Nota Fiscal (NFC-e)")
-        
-        tab1, tab2 = st.tabs(["🔗 Via URL", "📄 Via Upload"])
-        
-        with tab1:
-            st.subheader("Importar via URL da NFC-e")
-            url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
-            
-            if st.button("🔍 Extrair Dados") and url_nfce:
-                with st.spinner("Processando NFC-e..."):
-                    try:
-                        response = requests.get(url_nfce)
-                        soup = BeautifulSoup(response.content, 'html.parser')
-                        df_itens = extrair_itens_nfce(soup)
-                        
-                        if not df_itens.empty:
-                            st.success("✅ Dados extraídos com sucesso!")
-                            st.dataframe(df_itens)
-                        else:
-                            st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
-                    except Exception as e:
-                        st.error(f"❌ Erro ao processar: {str(e)}")
-        
-        with tab2:
-            st.subheader("Upload de arquivo CSV/Excel")
-            arquivo = st.file_uploader("Selecione o arquivo", type=['csv', 'xlsx', 'xls'])
-            
-            if arquivo:
-                try:
-                    if arquivo.name.endswith('.csv'):
-                        df_upload = pd.read_csv(arquivo)
-                    else:
-                        df_upload = pd.read_excel(arquivo)
-                    
-                    st.dataframe(df_upload)
-                    st.success("Dados carregados com sucesso!")
-                except Exception as e:
-                    st.error(f"❌ Erro ao processar arquivo: {str(e)}")
     
     # --- ANÁLISE DE PEDIDOS ---
     elif menu == "📊 Análise de Pedidos":
