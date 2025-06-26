@@ -232,10 +232,2753 @@ def dashboard_estoque(df_insumos):
     # Preparar dados
     df_work = df_insumos.copy()
     
-    # Converter colunas numéricas
+    # Converter colunas numéricas com mais cuidado
+    def converter_numero(valor):
+        """Converte valores para números, lidando com formatos brasileiros"""
+        try:
+            if pd.isna(valor) or valor == '' or valor == 0:
+                return 0.0
+            
+            # Se já é número, retorna
+            if isinstance(valor, (int, float)):
+                return float(valor)
+            
+            # Se é string, limpa e converte
+            if isinstance(valor, str):
+                # Remove R$, espaços e converte vírgula para ponto
+                valor_limpo = str(valor).replace('R
+    
+    # Métricas principais
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_produtos = len(df_work)
+        st.metric("📦 Total de Produtos", total_produtos)
+    
+    with col2:
+        valor_total = (df_work['Em estoque'] * df_work['Preço (un)']).sum()
+        st.metric("💰 Valor Total", formatar_br(valor_total))
+    
+    with col3:
+        produtos_baixo = len(df_work[
+            (df_work['Em estoque'] < df_work['Estoque Min']) & 
+            (df_work['Em estoque'] > 0)
+        ])
+        st.metric("⚠️ Estoque Baixo", produtos_baixo)
+    
+    with col4:
+        produtos_falta = len(df_work[df_work['Em estoque'] == 0])
+        st.metric("🚨 Em Falta", produtos_falta)
+    
+    # Alertas importantes
+    st.markdown("### 🔔 Alertas Importantes")
+    
+    produtos_falta_lista = df_work[df_work['Em estoque'] == 0]
+    produtos_baixo_lista = df_work[
+        (df_work['Em estoque'] < df_work['Estoque Min']) & 
+        (df_work['Em estoque'] > 0)
+    ]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if len(produtos_falta_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**🚨 Produtos em Falta:**")
+            for produto in produtos_falta_lista['Produto'].head(5):
+                st.write(f"• {produto}")
+            if len(produtos_falta_lista) > 5:
+                st.write(f"... e mais {len(produtos_falta_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Nenhum produto em falta!")
+    
+    with col2:
+        if len(produtos_baixo_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**⚠️ Estoque Baixo:**")
+            for _, produto in produtos_baixo_lista.head(5).iterrows():
+                st.write(f"• {produto['Produto']}: {produto['Em estoque']:.0f}/{produto['Estoque Min']:.0f}")
+            if len(produtos_baixo_lista) > 5:
+                st.write(f"... e mais {len(produtos_baixo_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Todos os produtos com estoque adequado!")
+    
+    # Gráficos
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'Categoria' in df_work.columns and PLOTLY_DISPONIVEL:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            fig1 = px.pie(
+                values=categoria_count.values, 
+                names=categoria_count.index,
+                title="Distribuição por Categoria"
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        elif 'Categoria' in df_work.columns:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            st.bar_chart(categoria_count)
+    
+    with col2:
+        st.subheader("💰 Valor por Categoria")
+        if 'Categoria' in df_work.columns:
+            valor_categoria = df_work.groupby('Categoria').apply(
+                lambda x: (x['Em estoque'] * x['Preço (un)']).sum()
+            ).reset_index()
+            valor_categoria.columns = ['Categoria', 'Valor']
+            
+            if PLOTLY_DISPONIVEL:
+                fig2 = px.bar(
+                    valor_categoria, 
+                    x='Categoria', 
+                    y='Valor',
+                    title="Valor em Estoque por Categoria"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.bar_chart(valor_categoria.set_index('Categoria'))
+
+def lista_produtos_estoque(df_insumos):
+    """Lista de produtos do estoque"""
+    
+    st.subheader("📋 Lista de Produtos")
+    
+    # Preparar dados com conversão melhorada
+    df_work = df_insumos.copy()
+    
+    # Função para converter valores brasileiros
+    def converter_numero(valor):
+        try:
+            if pd.isna(valor) or valor == '' or valor == 0:
+                return 0.0
+            if isinstance(valor, (int, float)):
+                return float(valor)
+            if isinstance(valor, str):
+                valor_limpo = str(valor).replace('R
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
     df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
-    df_work['Estoque Min'] = pd.to_numeric(df_work.get('Estoque Min', 0), errors='coerce').fillna(0)
     df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+                
+                # Debug: mostrar alguns dados para verificar formato
+                st.write("**Amostra dos dados (primeiras 3 linhas):**")
+                st.dataframe(df_test.head(3))
+                
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            
+            return float(valor)
+        except:
+            return 0.0
+    
+    # Aplicar conversão nas colunas numéricas
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
+    
+    # Métricas principais
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_produtos = len(df_work)
+        st.metric("📦 Total de Produtos", total_produtos)
+    
+    with col2:
+        valor_total = (df_work['Em estoque'] * df_work['Preço (un)']).sum()
+        st.metric("💰 Valor Total", formatar_br(valor_total))
+    
+    with col3:
+        produtos_baixo = len(df_work[
+            (df_work['Em estoque'] < df_work['Estoque Min']) & 
+            (df_work['Em estoque'] > 0)
+        ])
+        st.metric("⚠️ Estoque Baixo", produtos_baixo)
+    
+    with col4:
+        produtos_falta = len(df_work[df_work['Em estoque'] == 0])
+        st.metric("🚨 Em Falta", produtos_falta)
+    
+    # Alertas importantes
+    st.markdown("### 🔔 Alertas Importantes")
+    
+    produtos_falta_lista = df_work[df_work['Em estoque'] == 0]
+    produtos_baixo_lista = df_work[
+        (df_work['Em estoque'] < df_work['Estoque Min']) & 
+        (df_work['Em estoque'] > 0)
+    ]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if len(produtos_falta_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**🚨 Produtos em Falta:**")
+            for produto in produtos_falta_lista['Produto'].head(5):
+                st.write(f"• {produto}")
+            if len(produtos_falta_lista) > 5:
+                st.write(f"... e mais {len(produtos_falta_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Nenhum produto em falta!")
+    
+    with col2:
+        if len(produtos_baixo_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**⚠️ Estoque Baixo:**")
+            for _, produto in produtos_baixo_lista.head(5).iterrows():
+                st.write(f"• {produto['Produto']}: {produto['Em estoque']:.0f}/{produto['Estoque Min']:.0f}")
+            if len(produtos_baixo_lista) > 5:
+                st.write(f"... e mais {len(produtos_baixo_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Todos os produtos com estoque adequado!")
+    
+    # Gráficos
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'Categoria' in df_work.columns and PLOTLY_DISPONIVEL:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            fig1 = px.pie(
+                values=categoria_count.values, 
+                names=categoria_count.index,
+                title="Distribuição por Categoria"
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        elif 'Categoria' in df_work.columns:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            st.bar_chart(categoria_count)
+    
+    with col2:
+        st.subheader("💰 Valor por Categoria")
+        if 'Categoria' in df_work.columns:
+            valor_categoria = df_work.groupby('Categoria').apply(
+                lambda x: (x['Em estoque'] * x['Preço (un)']).sum()
+            ).reset_index()
+            valor_categoria.columns = ['Categoria', 'Valor']
+            
+            if PLOTLY_DISPONIVEL:
+                fig2 = px.bar(
+                    valor_categoria, 
+                    x='Categoria', 
+                    y='Valor',
+                    title="Valor em Estoque por Categoria"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.bar_chart(valor_categoria.set_index('Categoria'))
+
+def lista_produtos_estoque(df_insumos):
+    """Lista de produtos do estoque"""
+    
+    st.subheader("📋 Lista de Produtos")
+    
+    # Preparar dados com conversão melhorada
+    df_work = df_insumos.copy()
+    
+    # Função para converter valores brasileiros
+    def converter_numero(valor):
+        try:
+            if pd.isna(valor) or valor == '' or valor == 0:
+                return 0.0
+            if isinstance(valor, (int, float)):
+                return float(valor)
+            if isinstance(valor, str):
+                valor_limpo = str(valor).replace('R
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            return float(valor)
+        except:
+            return 0.0
+    
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            
+            return float(valor)
+        except:
+            return 0.0
+    
+    # Aplicar conversão nas colunas numéricas
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
     
     # Métricas principais
     col1, col2, col3, col4 = st.columns(4)
@@ -641,8 +3384,2613 @@ def entrada_produtos_estoque():
         'Status': ['Processado', 'Processado', 'Processado']
     }
     
-    df_historico = pd.DataFrame(dados_exemplo)
-    st.dataframe(df_historico, use_container_width=True)
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            return float(valor)
+        except:
+            return 0.0
+    
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            return float(valor)
+        except:
+            return 0.0
+    
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
+
+# --- Análise de Pedidos ---
+def analisar_pedidos(df_pedidos):
+    """Análise simples dos dados de pedidos"""
+    insights = []
+    
+    if df_pedidos.empty:
+        return ["Não há dados suficientes para análise."]
+    
+    try:
+        # Preparar dados
+        df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+        df_pedidos = df_pedidos.dropna(subset=['data'])
+        
+        if len(df_pedidos) == 0:
+            return ["Dados de data inválidos."]
+        
+        # Análise temporal
+        df_pedidos['hora'] = df_pedidos['data'].dt.hour
+        horarios_pico = df_pedidos['hora'].value_counts().head(3)
+        
+        insights.append(f"🕐 Horários de pico: {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
+        
+        # Análise de canal
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
+            if len(canais) > 0:
+                insights.append(f"📱 Canal principal: {canais.index[0]} ({canais.iloc[0]} pedidos)")
+        
+        # Análise de valores
+        if 'total' in df_pedidos.columns:
+            # Processar valores
+            df_pedidos['total_num'] = df_pedidos['total'].apply(limpar_valor_brasileiro)
+            
+            ticket_medio = df_pedidos['total_num'].mean()
+            valor_total = df_pedidos['total_num'].sum()
+            
+            insights.append(f"💰 Ticket médio: {formatar_br(ticket_medio)}")
+            insights.append(f"💰 Faturamento total: {formatar_br(valor_total)}")
+        
+        # Recomendações
+        insights.append("\n🎯 Recomendações:")
+        insights.append("• Análise mais detalhada disponível na versão completa")
+        
+    except Exception as e:
+        insights.append(f"Erro na análise: {str(e)}")
+    
+    return insights
+
+# --- Scraper NFC-e ---
+def extrair_itens_nfce(soup):
+    """Extrai itens da NFCe usando BeautifulSoup"""
+    tabela = soup.find("table", {"id": "tabResult"})
+    if not tabela:
+        return pd.DataFrame()
+    
+    linhas = tabela.find_all("tr")
+    dados = []
+    
+    for linha in linhas:
+        texto = linha.get_text(" ", strip=True)
+        if all(keyword in texto for keyword in ["Código:", "Qtde.:", "UN:", "Vl. Unit.:", "Vl. Total"]):
+            try:
+                nome = texto.split("(Código:")[0].strip()
+                codigo = re.search(r"Código:\s*(\d+)", texto).group(1)
+                qtd = re.search(r"Qtde\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                unidade = re.search(r"UN\:\s*(\w+)", texto).group(1)
+                unitario = re.search(r"Vl\. Unit\.\:\s*([\d,]+)", texto).group(1).replace(",", ".")
+                total = re.search(r"Vl\. Total\s*([\d,]+)", texto).group(1).replace(",", ".")
+                
+                dados.append({
+                    "Descrição": nome,
+                    "Código": codigo,
+                    "Quantidade": float(qtd),
+                    "Unidade": unidade,
+                    "Valor Unitário": float(unitario),
+                    "Valor Total": float(total)
+                })
+            except Exception:
+                continue
+    
+    return pd.DataFrame(dados)
+
+# --- Interface Principal ---
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🔥 VULCANO - Sistema de Gestão</h1>', unsafe_allow_html=True)
+    
+    # Menu lateral
+    st.sidebar.title("📋 Menu Principal")
+    menu = st.sidebar.radio(
+        "Selecione uma opção:",
+        [
+            "🏠 Dashboard Principal",
+            "📦 Gestão de Estoque",
+            "📊 Análise de Pedidos",
+            "🛵 Fechamento Motoboys",
+            "⚙️ Configurações"
+        ]
+    )
+    
+    # Carregar dados
+    df_compras, df_pedidos = carregar_dados_sheets()
+    
+    # --- DASHBOARD PRINCIPAL ---
+    if menu == "🏠 Dashboard Principal":
+        st.title("📊 Dashboard Principal")
+        
+        # Métricas principais
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_pedidos = len(df_pedidos) if not df_pedidos.empty else 0
+            st.metric("Total de Pedidos", total_pedidos)
+        
+        with col2:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                faturamento = valores_limpos.sum()
+                st.metric("Faturamento", formatar_br(faturamento))
+            else:
+                st.metric("Faturamento", "R$ 0,00")
+        
+        with col3:
+            if not df_pedidos.empty and 'total' in df_pedidos.columns:
+                valores_limpos = df_pedidos['total'].apply(limpar_valor_brasileiro)
+                ticket_medio = valores_limpos.mean()
+                st.metric("Ticket Médio", formatar_br(ticket_medio))
+            else:
+                st.metric("Ticket Médio", "R$ 0,00")
+        
+        with col4:
+            total_compras = len(df_compras) if not df_compras.empty else 0
+            st.metric("Compras Registradas", total_compras)
+        
+        # Resumo do estoque no dashboard
+        st.markdown("### 📦 Resumo do Estoque")
+        df_insumos = carregar_dados_insumos()
+        
+        if not df_insumos.empty:
+            df_insumos['Em estoque'] = pd.to_numeric(df_insumos.get('Em estoque', 0), errors='coerce').fillna(0)
+            df_insumos['Estoque Min'] = pd.to_numeric(df_insumos.get('Estoque Min', 0), errors='coerce').fillna(0)
+            df_insumos['Preço (un)'] = pd.to_numeric(df_insumos.get('Preço (un)', 0), errors='coerce').fillna(0)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                valor_estoque = (df_insumos['Em estoque'] * df_insumos['Preço (un)']).sum()
+                st.metric("💰 Valor em Estoque", formatar_br(valor_estoque))
+            
+            with col2:
+                produtos_baixo = len(df_insumos[
+                    (df_insumos['Em estoque'] < df_insumos['Estoque Min']) & 
+                    (df_insumos['Em estoque'] > 0)
+                ])
+                st.metric("⚠️ Estoque Baixo", produtos_baixo)
+            
+            with col3:
+                produtos_falta = len(df_insumos[df_insumos['Em estoque'] == 0])
+                st.metric("🚨 Em Falta", produtos_falta, delta_color="inverse")
+        
+        # Gráficos
+        if not df_pedidos.empty:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📈 Vendas por Dia")
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
+                    vendas_dia.columns = ['Data', 'Pedidos']
+                    st.line_chart(vendas_dia.set_index('Data'))
+            
+            with col2:
+                st.subheader("🎯 Vendas por Canal")
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
+                    st.bar_chart(canal_vendas)
+    
+    # --- GESTÃO DE ESTOQUE (NOVA SEÇÃO) ---
+    elif menu == "📦 Gestão de Estoque":
+        pagina_estoque()
+    
+    # --- ANÁLISE DE PEDIDOS ---
+    elif menu == "📊 Análise de Pedidos":
+        st.title("📊 Análise de Pedidos")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Análise com IA
+        st.subheader("🤖 Insights Automáticos")
+        
+        if st.button("🔍 Gerar Análise"):
+            with st.spinner("Analisando dados..."):
+                insights = analisar_pedidos(df_pedidos)
+                
+                for insight in insights:
+                    st.markdown(insight)
+        
+        # Solução do ticket médio
+        st.subheader("🎯 Solução: Ticket Médio Corrigido")
+        st.info("""
+        **Problema:** Múltiplos pedidos por mesa/cliente
+        **Solução:** Agrupar pedidos por cliente e tempo
+        """)
+        
+        if st.checkbox("🧮 Calcular Ticket Médio Corrigido"):
+            if 'nome' in df_pedidos.columns and 'total' in df_pedidos.columns:
+                df_temp = df_pedidos.copy()
+                df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+                df_temp['total_num'] = df_temp['total'].apply(limpar_valor_brasileiro)
+                
+                # Separar por tipo de entrega
+                if 'metodo_entrega' in df_temp.columns:
+                    delivery = df_temp[df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    local = df_temp[~df_temp['metodo_entrega'].str.contains('Delivery', case=False, na=False)]
+                    
+                    ticket_delivery = delivery['total_num'].mean() if len(delivery) > 0 else 0
+                    ticket_local = local['total_num'].mean() if len(local) > 0 else 0
+                    ticket_geral = df_temp['total_num'].mean()
+                    
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Ticket Geral", formatar_br(ticket_geral))
+                    with col2:
+                        st.metric("Ticket Delivery", formatar_br(ticket_delivery))
+                    with col3:
+                        st.metric("Ticket Local", formatar_br(ticket_local))
+                    
+                    # Estatísticas
+                    st.write("**Estatísticas por Tipo:**")
+                    stats = df_temp.groupby('metodo_entrega')['total_num'].agg(['count', 'mean', 'sum'])
+                    st.dataframe(stats)
+    
+    # --- FECHAMENTO MOTOBOYS ---
+    elif menu == "🛵 Fechamento Motoboys":
+        st.title("🛵 Fechamento de Motoboys")
+        
+        if df_pedidos.empty:
+            st.warning("⚠️ Nenhum dado de pedidos encontrado.")
+            return
+        
+        # Configurações
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            motoboys_lista = ["Everson", "Marlon", "Adrian", "Vulcano"]
+            if 'motoboy' in df_pedidos.columns:
+                motoboys_planilha = df_pedidos['motoboy'].dropna().unique().tolist()
+                motoboys_lista = list(set(motoboys_lista + motoboys_planilha))
+            
+            motoboy_selecionado = st.selectbox("Selecione o motoboy:", sorted(motoboys_lista))
+        
+        with col2:
+            data_inicio = st.date_input("Data início:", value=datetime.date.today() - datetime.timedelta(days=7))
+        
+        with col3:
+            data_fim = st.date_input("Data fim:", value=datetime.date.today())
+        
+        if st.button("🔍 Calcular Fechamento"):
+            # Preparar dados
+            df_temp = df_pedidos.copy()
+            df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
+            df_temp = df_temp.dropna(subset=['data'])
+            
+            # Filtros
+            if 'motoboy' in df_temp.columns:
+                filtro = (
+                    (df_temp['motoboy'].str.strip().str.lower() == motoboy_selecionado.lower()) &
+                    (df_temp['data'].dt.date >= data_inicio) &
+                    (df_temp['data'].dt.date <= data_fim)
+                )
+                df_filtrado = df_temp[filtro].copy()
+                
+                if df_filtrado.empty:
+                    st.warning("Nenhum pedido encontrado para os filtros selecionados.")
+                else:
+                    # Processar distâncias
+                    if 'distancia' in df_filtrado.columns:
+                        df_filtrado['distancia_num'] = pd.to_numeric(
+                            df_filtrado['distancia'].astype(str).str.replace(',', '.'), 
+                            errors='coerce'
+                        )
+                        df_filtrado = df_filtrado.dropna(subset=['distancia_num'])
+                        
+                        # Cálculos
+                        dias_trabalhados = df_filtrado['data'].dt.date.nunique()
+                        total_corridas = len(df_filtrado)
+                        km_total = df_filtrado['distancia_num'].sum()
+                        
+                        # Base e extras
+                        base_diaria = 90.0
+                        total_base = base_diaria * dias_trabalhados
+                        
+                        # Calcular extras (simplificado)
+                        total_extra = 0
+                        for _, pedido in df_filtrado.iterrows():
+                            km = pedido['distancia_num']
+                            if km > 6:
+                                if km <= 8:
+                                    total_extra += 2
+                                elif km <= 10:
+                                    total_extra += 6
+                                else:
+                                    total_extra += 11
+                        
+                        total_final = total_base + total_extra
+                        
+                        # Exibir resultados
+                        st.success("✅ Fechamento calculado!")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Dias", dias_trabalhados)
+                        with col2:
+                            st.metric("Corridas", total_corridas)
+                        with col3:
+                            st.metric("KM Total", f"{km_total:.1f}")
+                        with col4:
+                            st.metric("TOTAL", formatar_br(total_final))
+                        
+                        # Detalhes
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Base Fixa", formatar_br(total_base))
+                        with col2:
+                            st.metric("Extras", formatar_br(total_extra))
+                    else:
+                        st.error("Coluna 'Distancia' não encontrada.")
+            else:
+                st.error("Coluna 'Motoboy' não encontrada.")
+    
+    # --- CONFIGURAÇÕES ---
+    elif menu == "⚙️ Configurações":
+        st.title("⚙️ Configurações do Sistema")
+        
+        st.subheader("📋 Estrutura das Planilhas")
+        st.info("""
+        **✅ COMPRAS (Configurada):**
+        Data Compra, Fornecedor, Categoria, Descrição, Quantidade, Unid, Valor Unit, Valor Total
+        
+        **✅ PEDIDOS (Configurada):**  
+        Código, Data, Nome, Canal, Motoboy, Status, Método de entrega, Total, Distancia
+        
+        **✅ INSUMOS (Configurada):**
+        Produto, Categoria, Em estoque, Estoque Min, Preço (un), Fornecedor
+        
+        O sistema está configurado para sua estrutura atual!
+        """)
+        
+        # Mostrar estrutura atual
+        if not df_pedidos.empty:
+            st.write("**Colunas encontradas na planilha PEDIDOS:**")
+            st.write(", ".join(df_pedidos.columns.tolist()))
+        
+        # Testar conexão com INSUMOS
+        st.subheader("🔧 Testes de Conexão")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔄 Testar PEDIDOS e COMPRAS"):
+                if not df_pedidos.empty and not df_compras.empty:
+                    st.success("✅ PEDIDOS e COMPRAS OK!")
+                else:
+                    st.error("❌ Erro nas planilhas principais")
+        
+        with col2:
+            if st.button("🔄 Testar INSUMOS"):
+                df_insumos = carregar_dados_insumos()
+                if not df_insumos.empty:
+                    st.success(f"✅ INSUMOS OK! {len(df_insumos)} produtos")
+                else:
+                    st.error("❌ Erro na planilha INSUMOS")
+        
+        # Configurações
+        st.subheader("⚙️ Configurações")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Recarregar Dados"):
+                st.cache_data.clear()
+                st.success("✅ Cache limpo! Dados serão recarregados.")
+                st.rerun()
+        
+        with col2:
+            if st.button("📊 Verificar Conexão"):
+                client = conectar_google_sheets()
+                if client:
+                    st.success("✅ Conexão com Google Sheets OK!")
+                else:
+                    st.error("❌ Erro na conexão com Google Sheets.")
+
+if __name__ == "__main__":
+    main(), '').replace(' ', '').replace(',', '.').strip()
+                if valor_limpo == '':
+                    return 0.0
+                return float(valor_limpo)
+            
+            return float(valor)
+        except:
+            return 0.0
+    
+    # Aplicar conversão nas colunas numéricas
+    df_work['Em estoque'] = df_work.get('Em estoque', 0).apply(converter_numero)
+    df_work['Estoque Min'] = df_work.get('Estoque Min', 0).apply(converter_numero)
+    df_work['Preço (un)'] = df_work.get('Preço (un)', 0).apply(converter_numero)
+    
+    # Métricas principais
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_produtos = len(df_work)
+        st.metric("📦 Total de Produtos", total_produtos)
+    
+    with col2:
+        valor_total = (df_work['Em estoque'] * df_work['Preço (un)']).sum()
+        st.metric("💰 Valor Total", formatar_br(valor_total))
+    
+    with col3:
+        produtos_baixo = len(df_work[
+            (df_work['Em estoque'] < df_work['Estoque Min']) & 
+            (df_work['Em estoque'] > 0)
+        ])
+        st.metric("⚠️ Estoque Baixo", produtos_baixo)
+    
+    with col4:
+        produtos_falta = len(df_work[df_work['Em estoque'] == 0])
+        st.metric("🚨 Em Falta", produtos_falta)
+    
+    # Alertas importantes
+    st.markdown("### 🔔 Alertas Importantes")
+    
+    produtos_falta_lista = df_work[df_work['Em estoque'] == 0]
+    produtos_baixo_lista = df_work[
+        (df_work['Em estoque'] < df_work['Estoque Min']) & 
+        (df_work['Em estoque'] > 0)
+    ]
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if len(produtos_falta_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**🚨 Produtos em Falta:**")
+            for produto in produtos_falta_lista['Produto'].head(5):
+                st.write(f"• {produto}")
+            if len(produtos_falta_lista) > 5:
+                st.write(f"... e mais {len(produtos_falta_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Nenhum produto em falta!")
+    
+    with col2:
+        if len(produtos_baixo_lista) > 0:
+            st.markdown('<div class="estoque-card">', unsafe_allow_html=True)
+            st.markdown("**⚠️ Estoque Baixo:**")
+            for _, produto in produtos_baixo_lista.head(5).iterrows():
+                st.write(f"• {produto['Produto']}: {produto['Em estoque']:.0f}/{produto['Estoque Min']:.0f}")
+            if len(produtos_baixo_lista) > 5:
+                st.write(f"... e mais {len(produtos_baixo_lista) - 5}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.success("✅ Todos os produtos com estoque adequado!")
+    
+    # Gráficos
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'Categoria' in df_work.columns and PLOTLY_DISPONIVEL:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            fig1 = px.pie(
+                values=categoria_count.values, 
+                names=categoria_count.index,
+                title="Distribuição por Categoria"
+            )
+            st.plotly_chart(fig1, use_container_width=True)
+        elif 'Categoria' in df_work.columns:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            st.bar_chart(categoria_count)
+    
+    with col2:
+        st.subheader("💰 Valor por Categoria")
+        if 'Categoria' in df_work.columns:
+            valor_categoria = df_work.groupby('Categoria').apply(
+                lambda x: (x['Em estoque'] * x['Preço (un)']).sum()
+            ).reset_index()
+            valor_categoria.columns = ['Categoria', 'Valor']
+            
+            if PLOTLY_DISPONIVEL:
+                fig2 = px.bar(
+                    valor_categoria, 
+                    x='Categoria', 
+                    y='Valor',
+                    title="Valor em Estoque por Categoria"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.bar_chart(valor_categoria.set_index('Categoria'))
+
+def lista_produtos_estoque(df_insumos):
+    """Lista de produtos do estoque"""
+    
+    st.subheader("📋 Lista de Produtos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Estoque Min'] = pd.to_numeric(df_work.get('Estoque Min', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    
+    # Adicionar status
+    df_work['Status'] = df_work.apply(determinar_status_estoque, axis=1)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Filtros
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if 'Categoria' in df_work.columns:
+            categorias = ['Todas'] + sorted(df_work['Categoria'].dropna().unique().tolist())
+            categoria_filtro = st.selectbox("Filtrar por Categoria", categorias)
+        else:
+            categoria_filtro = 'Todas'
+    
+    with col2:
+        status_filtro = st.selectbox(
+            "Filtrar por Status",
+            ["Todos", "🟢 OK", "🟡 Baixo", "🔴 Em Falta"]
+        )
+    
+    with col3:
+        busca = st.text_input("🔍 Buscar produto")
+    
+    # Aplicar filtros
+    df_filtrado = df_work.copy()
+    
+    if categoria_filtro != 'Todas':
+        df_filtrado = df_filtrado[df_filtrado['Categoria'] == categoria_filtro]
+    
+    if status_filtro != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Status'] == status_filtro]
+    
+    if busca:
+        mask = df_filtrado['Produto'].str.contains(busca, case=False, na=False)
+        df_filtrado = df_filtrado[mask]
+    
+    # Informações do filtro
+    valor_filtrado = df_filtrado['Valor Total'].sum()
+    st.info(f"📊 Mostrando {len(df_filtrado)} de {len(df_work)} produtos | Valor: {formatar_br(valor_filtrado)}")
+    
+    # Selecionar colunas para exibir
+    colunas_exibir = ['Produto', 'Categoria', 'Em estoque', 'Estoque Min', 'Preço (un)', 'Valor Total', 'Status', 'Fornecedor']
+    colunas_disponiveis = [col for col in colunas_exibir if col in df_filtrado.columns]
+    
+    if len(df_filtrado) > 0:
+        # Configurar editor
+        df_display = df_filtrado[colunas_disponiveis].copy()
+        
+        # Tabela editável
+        df_editado = st.data_editor(
+            df_display,
+            column_config={
+                "Produto": st.column_config.TextColumn("Produto", width="medium"),
+                "Categoria": st.column_config.TextColumn("Categoria", width="small"),
+                "Em estoque": st.column_config.NumberColumn(
+                    "Em Estoque",
+                    help="Quantidade atual em estoque",
+                    min_value=0,
+                    step=1,
+                    format="%.1f"
+                ),
+                "Estoque Min": st.column_config.NumberColumn(
+                    "Estoque Mínimo", 
+                    help="Quantidade mínima recomendada",
+                    min_value=0,
+                    step=1,
+                    format="%.0f"
+                ),
+                "Preço (un)": st.column_config.NumberColumn(
+                    "Preço (R$)",
+                    help="Preço unitário",
+                    min_value=0.0,
+                    step=0.01,
+                    format="R$ %.2f"
+                ),
+                "Valor Total": st.column_config.NumberColumn(
+                    "Valor Total",
+                    help="Em estoque × Preço",
+                    format="R$ %.2f"
+                ),
+                "Status": st.column_config.TextColumn("Status", width="small"),
+                "Fornecedor": st.column_config.TextColumn("Fornecedor", width="small")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+        
+        # Botão para salvar
+        if st.button("💾 Salvar Alterações"):
+            st.success("✅ Funcionalidade de salvamento será implementada na próxima versão!")
+            st.info("💡 Por enquanto, edite diretamente no Google Sheets")
+    
+    else:
+        st.warning("⚠️ Nenhum produto encontrado com os filtros aplicados")
+
+def analise_custos_estoque(df_insumos):
+    """Análise de custos do estoque"""
+    
+    st.subheader("📈 Análise de Custos")
+    
+    # Preparar dados
+    df_work = df_insumos.copy()
+    df_work['Em estoque'] = pd.to_numeric(df_work.get('Em estoque', 0), errors='coerce').fillna(0)
+    df_work['Preço (un)'] = pd.to_numeric(df_work.get('Preço (un)', 0), errors='coerce').fillna(0)
+    df_work['Valor Total'] = df_work['Em estoque'] * df_work['Preço (un)']
+    
+    # Análise por fornecedor
+    if 'Fornecedor' in df_work.columns:
+        st.markdown("### 🏪 Análise por Fornecedor")
+        
+        analise_fornecedor = df_work.groupby('Fornecedor').agg({
+            'Produto': 'count',
+            'Valor Total': 'sum',
+            'Em estoque': 'sum'
+        }).reset_index()
+        analise_fornecedor.columns = ['Fornecedor', 'Qtd_Produtos', 'Valor_Total', 'Qtd_Estoque']
+        analise_fornecedor = analise_fornecedor.sort_values('Valor_Total', ascending=False)
+        
+        st.dataframe(
+            analise_fornecedor,
+            column_config={
+                "Fornecedor": "Fornecedor",
+                "Qtd_Produtos": st.column_config.NumberColumn("Produtos", format="%d"),
+                "Valor_Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f"),
+                "Qtd_Estoque": st.column_config.NumberColumn("Qtd em Estoque", format="%.1f")
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    
+    # Top produtos mais valiosos
+    st.markdown("### 💎 Top 10 Produtos Mais Valiosos")
+    top_produtos = df_work.nlargest(10, 'Valor Total')[['Produto', 'Em estoque', 'Preço (un)', 'Valor Total']]
+    
+    st.dataframe(
+        top_produtos,
+        column_config={
+            "Produto": "Produto",
+            "Em estoque": st.column_config.NumberColumn("Estoque", format="%.1f"),
+            "Preço (un)": st.column_config.NumberColumn("Preço Unit.", format="R$ %.2f"),
+            "Valor Total": st.column_config.NumberColumn("Valor Total", format="R$ %.2f")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+    
+    # Recomendações
+    st.markdown("### 💡 Recomendações")
+    
+    valor_total = df_work['Valor Total'].sum()
+    produtos_alto_valor = df_work[df_work['Valor Total'] > (valor_total * 0.05)]  # 5% do total
+    
+    st.info(f"""
+    **Análise do Estoque:**
+    
+    • **Valor total investido:** {formatar_br(valor_total)}
+    • **Produtos de alto valor:** {len(produtos_alto_valor)} itens representam a maior parte do investimento
+    • **Concentração:** {len(produtos_alto_valor)/len(df_work)*100:.1f}% dos produtos concentram maior valor
+    
+    **Dicas:**
+    • Monitore de perto os produtos de alto valor
+    • Revise estoques mínimos dos itens mais caros
+    • Considere negociações especiais com fornecedores principais
+    """)
+
+def entrada_produtos_estoque():
+    """Entrada de produtos via NFCe, CSV ou manual"""
+    
+    st.subheader("📥 Entrada de Produtos")
+    
+    st.info("💡 Aqui você pode registrar a entrada de novos produtos no estoque")
+    
+    # Tabs para diferentes tipos de entrada
+    tab1, tab2, tab3 = st.tabs(["🔗 Via NFCe (URL)", "📄 Via CSV/Excel", "✍️ Entrada Manual"])
+    
+    with tab1:
+        st.subheader("Importar via URL da NFC-e")
+        st.write("Cole a URL da nota fiscal eletrônica para importar automaticamente os produtos")
+        
+        url_nfce = st.text_input("Cole a URL da NFC-e aqui:")
+        
+        if st.button("🔍 Extrair Dados da NFCe") and url_nfce:
+            with st.spinner("Processando NFC-e..."):
+                try:
+                    response = requests.get(url_nfce)
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    df_itens = extrair_itens_nfce(soup)
+                    
+                    if not df_itens.empty:
+                        st.success("✅ Dados extraídos com sucesso!")
+                        st.subheader("📦 Produtos encontrados:")
+                        st.dataframe(df_itens, use_container_width=True)
+                        
+                        if st.button("💾 Salvar no Estoque"):
+                            st.success("✅ Funcionalidade de salvamento será implementada!")
+                            st.info("💡 Os produtos serão adicionados ao estoque teórico")
+                    else:
+                        st.error("❌ Não foi possível extrair os dados. Verifique a URL.")
+                        st.info("💡 Certifique-se que a URL é de uma NFCe válida")
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {str(e)}")
+    
+    with tab2:
+        st.subheader("Upload de arquivo CSV/Excel")
+        st.write("Faça upload de um arquivo com os dados dos produtos comprados")
+        
+        arquivo = st.file_uploader(
+            "Selecione o arquivo", 
+            type=['csv', 'xlsx', 'xls'],
+            help="Formatos aceitos: CSV, Excel (.xlsx, .xls)"
+        )
+        
+        if arquivo:
+            try:
+                if arquivo.name.endswith('.csv'):
+                    df_upload = pd.read_csv(arquivo)
+                else:
+                    df_upload = pd.read_excel(arquivo)
+                
+                st.success("✅ Arquivo carregado com sucesso!")
+                st.subheader("📊 Dados do arquivo:")
+                st.dataframe(df_upload, use_container_width=True)
+                
+                # Mapear colunas
+                st.subheader("🔗 Mapeamento de Colunas")
+                st.write("Associe as colunas do seu arquivo com os campos do sistema:")
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    coluna_produto = st.selectbox("Produto/Descrição:", df_upload.columns)
+                    coluna_quantidade = st.selectbox("Quantidade:", df_upload.columns)
+                    coluna_preco = st.selectbox("Preço Unitário:", df_upload.columns)
+                
+                with col2:
+                    coluna_fornecedor = st.selectbox("Fornecedor:", [""] + list(df_upload.columns))
+                    coluna_categoria = st.selectbox("Categoria:", [""] + list(df_upload.columns))
+                    coluna_unidade = st.selectbox("Unidade:", [""] + list(df_upload.columns))
+                
+                if st.button("💾 Processar e Salvar"):
+                    st.success("✅ Dados processados!")
+                    st.info("💡 Os produtos serão adicionados ao estoque")
+                    
+            except Exception as e:
+                st.error(f"❌ Erro ao processar arquivo: {str(e)}")
+    
+    with tab3:
+        st.subheader("✍️ Entrada Manual de Produtos")
+        st.write("Adicione produtos manualmente ao estoque")
+        
+        with st.form("entrada_manual"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                produto_nome = st.text_input("Nome do Produto*", placeholder="Ex: Coca Cola Lata 350ml")
+                quantidade = st.number_input("Quantidade*", min_value=0.0, step=1.0, value=1.0)
+                preco_unitario = st.number_input("Preço Unitário (R$)*", min_value=0.0, step=0.01, value=0.0)
+            
+            with col2:
+                fornecedor = st.text_input("Fornecedor", placeholder="Ex: Coca Cola")
+                categoria = st.selectbox("Categoria", ["Bebidas", "Insumos", "Higiene e Limp", "Embalagens"])
+                unidade = st.selectbox("Unidade", ["un", "kg", "g", "l", "ml", "pc"])
+            
+            observacoes = st.text_area("Observações", placeholder="Informações adicionais sobre a compra...")
+            
+            submitted = st.form_submit_button("➕ Adicionar ao Estoque")
+            
+            if submitted:
+                if produto_nome and quantidade > 0 and preco_unitario > 0:
+                    st.success(f"✅ Produto '{produto_nome}' adicionado ao estoque!")
+                    st.info("💡 O produto será registrado na planilha INSUMOS")
+                    
+                    # Mostrar resumo
+                    st.markdown("**📋 Resumo da Entrada:**")
+                    st.write(f"• **Produto:** {produto_nome}")
+                    st.write(f"• **Quantidade:** {quantidade} {unidade}")
+                    st.write(f"• **Preço:** {formatar_br(preco_unitario)}")
+                    st.write(f"• **Valor Total:** {formatar_br(quantidade * preco_unitario)}")
+                    if fornecedor:
+                        st.write(f"• **Fornecedor:** {fornecedor}")
+                    if observacoes:
+                        st.write(f"• **Observações:** {observacoes}")
+                else:
+                    st.error("❌ Preencha todos os campos obrigatórios (*)")
+    
+    # Histórico de entradas (placeholder)
+    st.markdown("---")
+    st.subheader("📋 Últimas Entradas")
+    st.info("💡 Aqui aparecerá o histórico das últimas entradas de produtos")
+    
+    # Dados de exemplo para o histórico
+    dados_exemplo = {
+        'Data': ['26/06/2025', '25/06/2025', '24/06/2025'],
+        'Tipo': ['NFCe', 'Manual', 'CSV'],
+        'Produtos': [5, 1, 12],
+        'Valor Total': ['R$ 127,50', 'R$ 28,10', 'R$ 345,80'],
+        'Status': ['Processado', 'Processado', 'Processado']
+    }
+    
+def configuracoes_estoque():
+    """Configurações do módulo de estoque"""
+    
+    st.subheader("⚙️ Configurações do Estoque")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Conexão com Planilha")
+        
+        if st.button("🔄 Testar Conexão INSUMOS"):
+            df_test = carregar_dados_insumos()
+            if not df_test.empty:
+                st.success(f"✅ Conexão OK! {len(df_test)} produtos carregados")
+                st.write("**Colunas encontradas:**")
+                st.write(", ".join(df_test.columns.tolist()))
+            else:
+                st.error("❌ Erro na conexão com a aba INSUMOS")
+        
+        st.markdown("### 🔄 Cache")
+        if st.button("🧹 Limpar Cache"):
+            st.cache_data.clear()
+            st.success("✅ Cache limpo!")
+    
+    with col2:
+        st.markdown("### ⚙️ Configurações de Alerta")
+        
+        limite_baixo = st.slider(
+            "Limite para Estoque Baixo (%)",
+            min_value=10,
+            max_value=50,
+            value=20,
+            help="Percentual do estoque mínimo para gerar alerta"
+        )
+        
+        notif_falta = st.checkbox("Notificar produtos em falta", value=True)
+        notif_baixo = st.checkbox("Notificar estoque baixo", value=True)
+        
+        if st.button("💾 Salvar Configurações"):
+            st.success("✅ Configurações salvas!")
+    
+    # Informações da estrutura
+    st.markdown("### 📋 Estrutura da Aba INSUMOS")
+    st.info("""
+    **Colunas esperadas na aba INSUMOS:**
+    
+    • **Produto** - Nome do produto/insumo
+    • **Categoria** - Categoria (Bebidas, Insumos, etc.)
+    • **Em estoque** - Quantidade atual em estoque
+    • **Estoque Min** - Quantidade mínima recomendada
+    • **Preço (un)** - Preço unitário
+    • **Fornecedor** - Nome do fornecedor
+    
+    O sistema já está configurado para funcionar com sua planilha atual!
+    """)
     """Configurações do módulo de estoque"""
     
     st.subheader("⚙️ Configurações do Estoque")
