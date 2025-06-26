@@ -279,7 +279,7 @@ def extrair_itens_nfce(soup):
         # Análise de valores
         if 'total' in df_pedidos.columns:
             # Limpar e converter valores (formato brasileiro com R$)
-            df_pedidos['total_num'] = df_pedidos['total'].astype(str).str.replace('R$')
+            df_pedidos['total_num'] = df_pedidos['total'].astype(str).str.replace('R
         pedidos_por_dia = df_pedidos.groupby('Data_apenas').size()
         
         if len(pedidos_por_dia) >= 7:
@@ -376,7 +376,7 @@ def main():
         with col2:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
                 # Processar valores em formato brasileiro
-                total_values = df_pedidos['total'].astype(str).str.replace('R$')
+                total_values = df_pedidos['total'].astype(str).str.replace('R
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
@@ -516,7 +516,7 @@ def main():
                 df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
                 
                 # Processar valores
-                df_temp['total_clean'] = df_temp['total'].astype(str).str.replace('R$')
+                df_temp['total_clean'] = df_temp['total'].astype(str).str.replace('R
     
     # --- CONTROLE DE ESTOQUE ---
     elif menu == "📦 Controle de Estoque":
@@ -1014,7 +1014,21 @@ def main():
             O sistema já está configurado para funcionar com copy/paste direto do seu ERP!
             """)
             
-            st.markdown("---")colunas_disponiveis
+            st.markdown("---")
+            
+            st.markdown("### 📊 Estrutura Atual das Planilhas")
+            
+            # Mostrar estrutura atual
+            df_compras_atual, df_pedidos_atual = carregar_dados_sheets()
+            
+            if not df_pedidos_atual.empty:
+                st.write("**Colunas encontradas na planilha PEDIDOS:**")
+                colunas_disponiveis = df_pedidos_atual.columns.tolist()
+                st.write(", ".join(colunas_disponiveis))
+            else:
+                st.warning("⚠️ Planilha PEDIDOS vazia ou não encontrada.")
+            
+            st.markdown("---")nas_disponiveis)
                 
                 with col2:
                     col_distancia = st.selectbox("Coluna Distância/KM:", [''] + colunas_disponiveis)
@@ -2056,7 +2070,7 @@ if __name__ == "__main__":
         
         with col3:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
-                total_values = df_pedidos['total'].astype(str).str.replace('R$')
+                total_values = df_pedidos['total'].astype(str).str.replace('R
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
@@ -7109,7 +7123,7 @@ if __name__ == "__main__":
         
         with col3:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
-                total_values = df_pedidos['total'].astype(str).str.replace('R$')
+                total_values = df_pedidos['total'].astype(str).str.replace('R
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
