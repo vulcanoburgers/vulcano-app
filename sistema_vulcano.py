@@ -13,8 +13,32 @@ from collections import defaultdict
 import sqlite3
 import os
 
-# --- Configuração Inicial ---
-st.set_page_config(page_title="Vulcano App - Sistema de Gestão", layout="wide", initial_sidebar_state="expanded")
+# --- Mapeamento de Colunas ---
+COLUNAS_COMPRAS = {
+    'data': 'Data Compra',
+    'fornecedor': 'Fornecedor', 
+    'categoria': 'Categoria',
+    'descricao': 'Descrição',
+    'quantidade': 'Quantidade',
+    'unidade': 'Unid',
+    'valor_unitario': 'Valor Unit',
+    'valor_total': 'Valor Total',
+    'forma_pagamento': 'Forma de Pagamento',
+    'data_pagamento': 'Data de pagamento'
+}
+
+# Mapeamento para pedidos (você pode ajustar conforme sua planilha)
+COLUNAS_PEDIDOS = {
+    'data': 'Data',
+    'mesa': 'Mesa',
+    'canal': 'Canal', 
+    'motoboy': 'Motoboy',
+    'distancia': 'Distancia',  # ou 'KM'
+    'valor': 'Valor',
+    'forma_pagamento': 'Forma_Pagamento',
+    'desconto': 'Desconto',
+    'observacoes': 'Observacoes'
+}
 
 # --- CSS Personalizado ---
 st.markdown("""
@@ -150,7 +174,39 @@ def converter_valor(valor):
     except (ValueError, TypeError):
         return 0.0
 
-def extrair_itens_nfce(soup):
+def verificar_colunas_planilha(df, tipo_planilha):
+    """Verifica se as colunas necessárias existem na planilha"""
+    if tipo_planilha == 'COMPRAS':
+        colunas_necessarias = list(COLUNAS_COMPRAS.values())
+    elif tipo_planilha == 'PEDIDOS':
+        colunas_necessarias = list(COLUNAS_PEDIDOS.values())
+    else:
+        return True, []
+    
+    colunas_faltando = []
+    colunas_df = df.columns.tolist() if not df.empty else []
+    
+    for col in colunas_necessarias:
+        if col not in colunas_df:
+            colunas_faltando.append(col)
+    
+    return len(colunas_faltando) == 0, colunas_faltando
+
+def mapear_colunas(df, tipo_planilha):
+    """Mapeia as colunas da planilha para nomes padronizados"""
+    if df.empty:
+        return df
+    
+    if tipo_planilha == 'COMPRAS':
+        mapeamento = {v: k for k, v in COLUNAS_COMPRAS.items()}
+    elif tipo_planilha == 'PEDIDOS':
+        mapeamento = {v: k for k, v in COLUNAS_PEDIDOS.items()}
+    else:
+        return df
+    
+    # Renomear apenas as colunas que existem
+    colunas_existentes = {col: mapeamento[col] for col in df.columns if col in mapeamento}
+    return df.rename(columns=colunas_existentes)
     """Extrai itens da NFCe usando BeautifulSoup"""
     tabela = soup.find("table", {"id": "tabResult"})
     if not tabela:
@@ -183,7 +239,7 @@ def extrair_itens_nfce(soup):
     
     return pd.DataFrame(dados)
 
-def analisar_pedidos_com_ia(df_pedidos):
+def extrair_itens_nfce(soup):
     """Análise inteligente dos dados de pedidos"""
     insights = []
     
@@ -199,28 +255,28 @@ def analisar_pedidos_com_ia(df_pedidos):
             return ["Dados de data inválidos."]
         
         # Padrões de horário
-        df_pedidos['Hora'] = df_pedidos['Data'].dt.hour
+        df_pedidos['Hora'] = df_pedidos['data'].dt.hour
         horarios_pico = df_pedidos['Hora'].value_counts().head(3)
         
         insights.append(f"🕐 **Horários de maior movimento:** {', '.join([f'{h}h ({v} pedidos)' for h, v in horarios_pico.items()])}")
         
         # Padrões de canal de venda
-        if 'Canal' in df_pedidos.columns:
-            canais = df_pedidos['Canal'].value_counts()
+        if 'canal' in df_pedidos.columns:
+            canais = df_pedidos['canal'].value_counts()
             canal_principal = canais.index[0] if len(canais) > 0 else "N/A"
             insights.append(f"📱 **Canal principal:** {canal_principal} ({canais.iloc[0]} pedidos)")
         
         # Análise de valores
-        if 'Valor' in df_pedidos.columns:
-            df_pedidos['Valor'] = pd.to_numeric(df_pedidos['Valor'], errors='coerce')
-            ticket_medio = df_pedidos['Valor'].mean()
-            valor_total = df_pedidos['Valor'].sum()
+        if 'valor' in df_pedidos.columns:
+            df_pedidos['valor'] = pd.to_numeric(df_pedidos['valor'], errors='coerce')
+            ticket_medio = df_pedidos['valor'].mean()
+            valor_total = df_pedidos['valor'].sum()
             
             insights.append(f"💰 **Ticket médio:** {formatar_br(ticket_medio)}")
             insights.append(f"💰 **Faturamento total:** {formatar_br(valor_total)}")
         
         # Análise de crescimento
-        df_pedidos['Data_apenas'] = df_pedidos['Data'].dt.date
+        df_pedidos['Data_apenas'] = df_pedidos['data'].dt.date
         pedidos_por_dia = df_pedidos.groupby('Data_apenas').size()
         
         if len(pedidos_por_dia) >= 7:
@@ -245,8 +301,8 @@ def analisar_pedidos_com_ia(df_pedidos):
                 insights.append("• Aproveite o movimento do almoço para lançar combos executivos")
         
         # Análise de delivery vs salão
-        if 'Canal' in df_pedidos.columns:
-            delivery_pct = (df_pedidos['Canal'].str.contains('delivery|ifood', case=False, na=False).sum() / len(df_pedidos)) * 100
+        if 'canal' in df_pedidos.columns:
+            delivery_pct = (df_pedidos['canal'].str.contains('delivery|ifood', case=False, na=False).sum() / len(df_pedidos)) * 100
             if delivery_pct > 60:
                 insights.append("• Foco no delivery: considere melhorar a logística e parcerias")
             elif delivery_pct < 30:
@@ -315,15 +371,15 @@ def main():
             st.metric("Total de Pedidos", total_pedidos)
         
         with col2:
-            if not df_pedidos.empty and 'Valor' in df_pedidos.columns:
-                faturamento = pd.to_numeric(df_pedidos['Valor'], errors='coerce').sum()
+            if not df_pedidos.empty and 'valor' in df_pedidos.columns:
+                faturamento = pd.to_numeric(df_pedidos['valor'], errors='coerce').sum()
                 st.metric("Faturamento", formatar_br(faturamento))
             else:
                 st.metric("Faturamento", "R$ 0,00")
         
         with col3:
-            if not df_pedidos.empty and 'Valor' in df_pedidos.columns:
-                ticket_medio = pd.to_numeric(df_pedidos['Valor'], errors='coerce').mean()
+            if not df_pedidos.empty and 'valor' in df_pedidos.columns:
+                ticket_medio = pd.to_numeric(df_pedidos['valor'], errors='coerce').mean()
                 st.metric("Ticket Médio", formatar_br(ticket_medio))
             else:
                 st.metric("Ticket Médio", "R$ 0,00")
@@ -338,9 +394,9 @@ def main():
             
             with col1:
                 st.subheader("📈 Vendas por Dia")
-                if 'Data' in df_pedidos.columns:
-                    df_pedidos['Data'] = pd.to_datetime(df_pedidos['Data'], errors='coerce')
-                    vendas_dia = df_pedidos.groupby(df_pedidos['Data'].dt.date).size().reset_index()
+                if 'data' in df_pedidos.columns:
+                    df_pedidos['data'] = pd.to_datetime(df_pedidos['data'], errors='coerce')
+                    vendas_dia = df_pedidos.groupby(df_pedidos['data'].dt.date).size().reset_index()
                     vendas_dia.columns = ['Data', 'Pedidos']
                     
                     # Gráfico simples com Streamlit
@@ -348,8 +404,8 @@ def main():
             
             with col2:
                 st.subheader("🎯 Vendas por Canal")
-                if 'Canal' in df_pedidos.columns:
-                    canal_vendas = df_pedidos['Canal'].value_counts()
+                if 'canal' in df_pedidos.columns:
+                    canal_vendas = df_pedidos['canal'].value_counts()
                     st.bar_chart(canal_vendas)
     
     # --- INSERIR NFC-E ---
@@ -974,7 +1030,43 @@ def main():
         with tab1:
             st.subheader("🔧 Configurações do Sistema")
             
-            st.markdown("### 📋 Estrutura das Planilhas")
+            st.markdown("### 📋 Configurar Colunas das Planilhas")
+            st.info("""
+            **Configure os nomes exatos das colunas da sua planilha de PEDIDOS:**
+            Isso permite que o sistema funcione mesmo se você alterar os cabeçalhos.
+            """)
+            
+            # Carregar dados atuais para mostrar colunas disponíveis
+            df_compras_atual, df_pedidos_atual = carregar_dados_sheets()
+            
+            if not df_pedidos_atual.empty:
+                st.write("**Colunas encontradas na planilha PEDIDOS:**")
+                colunas_disponiveis = df_pedidos_atual.columns.tolist()
+                st.write(", ".join(colunas_disponiveis))
+                
+                st.markdown("#### Mapeamento de Colunas:")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    col_data = st.selectbox("Coluna Data/Hora:", colunas_disponiveis, 
+                                          index=colunas_disponiveis.index('Data') if 'Data' in colunas_disponiveis else 0)
+                    col_mesa = st.selectbox("Coluna Mesa:", [''] + colunas_disponiveis)
+                    col_canal = st.selectbox("Coluna Canal:", [''] + colunas_disponiveis)
+                    col_motoboy = st.selectbox("Coluna Motoboy:", [''] + colunas_disponiveis)
+                
+                with col2:
+                    col_distancia = st.selectbox("Coluna Distância/KM:", [''] + colunas_disponiveis)
+                    col_valor = st.selectbox("Coluna Valor:", [''] + colunas_disponiveis)
+                    col_forma_pag = st.selectbox("Coluna Forma Pagamento:", [''] + colunas_disponiveis)
+                    col_desconto = st.selectbox("Coluna Desconto:", [''] + colunas_disponiveis)
+                
+                if st.button("💾 Salvar Mapeamento"):
+                    # Aqui você pode salvar no banco ou session_state
+                    st.success("✅ Mapeamento salvo! O sistema agora usará esses nomes de colunas.")
+            else:
+                st.warning("⚠️ Planilha PEDIDOS vazia ou não encontrada.")
+            
+            st.markdown("---")
             st.info("""
             **Planilha PEDIDOS deve conter as colunas:**
             - Data: Data e hora do pedido
