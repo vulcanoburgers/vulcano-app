@@ -376,7 +376,7 @@ def main():
         with col2:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
                 # Processar valores em formato brasileiro
-                total_values = df_pedidos['total'].astype(str).str.replace('R
+                total_values = df_pedidos['total'].astype(str).str.replace('R$')
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
@@ -516,7 +516,7 @@ def main():
                 df_temp['data'] = pd.to_datetime(df_temp['data'], errors='coerce')
                 
                 # Processar valores
-                df_temp['total_clean'] = df_temp['total'].astype(str).str.replace('R
+                df_temp['total_clean'] = df_temp['total'].astype(str).str.replace('R$')
     
     # --- CONTROLE DE ESTOQUE ---
     elif menu == "📦 Controle de Estoque":
@@ -2056,7 +2056,7 @@ if __name__ == "__main__":
         
         with col3:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
-                total_values = df_pedidos['total'].astype(str).str.replace('R
+                total_values = df_pedidos['total'].astype(str).str.replace('R$')
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
@@ -7109,7 +7109,7 @@ if __name__ == "__main__":
         
         with col3:
             if not df_pedidos.empty and 'total' in df_pedidos.columns:
-                total_values = df_pedidos['total'].astype(str).str.replace('R
+                total_values = df_pedidos['total'].astype(str).str.replace('R$')
         
         with col4:
             total_compras = len(df_compras) if not df_compras.empty else 0
