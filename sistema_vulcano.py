@@ -7,7 +7,15 @@ import gspread
 import requests
 from bs4 import BeautifulSoup
 import re
-import plotly.express as px
+
+# Importar plotly apenas se disponível
+try:
+    import plotly.express as px
+    PLOTLY_DISPONIVEL = True
+except ImportError:
+    PLOTLY_DISPONIVEL = False
+    st.warning("⚠️ Plotly não está instalado. Alguns gráficos não serão exibidos.")
+    st.info("💡 Para instalar: pip install plotly")
 
 # --- Configuração Inicial ---
 st.set_page_config(page_title="Vulcano App - Sistema de Gestão", layout="wide")
@@ -290,7 +298,7 @@ def dashboard_estoque(df_insumos):
     col1, col2 = st.columns(2)
     
     with col1:
-        if 'Categoria' in df_work.columns:
+        if 'Categoria' in df_work.columns and PLOTLY_DISPONIVEL:
             st.subheader("📊 Produtos por Categoria")
             categoria_count = df_work['Categoria'].value_counts()
             fig1 = px.pie(
@@ -299,6 +307,10 @@ def dashboard_estoque(df_insumos):
                 title="Distribuição por Categoria"
             )
             st.plotly_chart(fig1, use_container_width=True)
+        elif 'Categoria' in df_work.columns:
+            st.subheader("📊 Produtos por Categoria")
+            categoria_count = df_work['Categoria'].value_counts()
+            st.bar_chart(categoria_count)
     
     with col2:
         st.subheader("💰 Valor por Categoria")
@@ -308,13 +320,16 @@ def dashboard_estoque(df_insumos):
             ).reset_index()
             valor_categoria.columns = ['Categoria', 'Valor']
             
-            fig2 = px.bar(
-                valor_categoria, 
-                x='Categoria', 
-                y='Valor',
-                title="Valor em Estoque por Categoria"
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            if PLOTLY_DISPONIVEL:
+                fig2 = px.bar(
+                    valor_categoria, 
+                    x='Categoria', 
+                    y='Valor',
+                    title="Valor em Estoque por Categoria"
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.bar_chart(valor_categoria.set_index('Categoria'))
 
 def lista_produtos_estoque(df_insumos):
     """Lista de produtos do estoque"""
