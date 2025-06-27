@@ -152,4 +152,4 @@ def main():
         st.write("Configurações funcionando!")
 
 if __name__ == "__main__":
-    m
+    main()
