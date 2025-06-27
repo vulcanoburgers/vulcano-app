@@ -1283,10 +1283,10 @@ def main():
             else:
                 st.error("❌ Coluna 'motoboy' não encontrada.")
                         col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric("Base Fixa", formatar_br(total_base))
-                        with col2:
-                            st.metric("Extras", formatar_br(total_extra))
+                            with col1:
+                                st.metric("Base Fixa", formatar_br(base_total))
+                            with col2:
+                                st.metric("Extras", formatar_br(extras))
                     else:
                         st.error("❌ Coluna 'distancia' não encontrada.")
             else:
